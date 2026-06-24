@@ -10,6 +10,14 @@ void main() {
 class MainApp extends StatelessWidget {
   const MainApp({super.key});
 
+  static ThemeData _buildTheme(Brightness brightness) => ThemeData(
+    colorScheme: ColorScheme.fromSeed(
+      seedColor: Colors.indigo,
+      brightness: brightness,
+    ),
+    useMaterial3: true,
+  );
+
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
@@ -17,21 +25,9 @@ class MainApp extends StatelessWidget {
       child: MaterialApp(
         title: 'Mis juegos',
         debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: Colors.indigo, 
-            brightness: Brightness.light,
-          ),
-          useMaterial3: true,
-        ),
-        darkTheme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: Colors.indigo, 
-            brightness: Brightness.dark,
-          ),
-          useMaterial3: true,
-        ),
-        themeMode: ThemeMode.system, 
+        theme: _buildTheme(Brightness.light),
+        darkTheme: _buildTheme(Brightness.dark),
+        themeMode: ThemeMode.system,
         home: const HomeView(),
       ),
     );
