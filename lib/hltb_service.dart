@@ -90,10 +90,11 @@ class HltbService {
     'AAAAAAaaaaaaOOOOOOooooooEEEEeeeeCcIIIIiiiiUUUUuuuuNnOo'.runes,
   );
 
-  static String _removeDiacritics(String text) =>
+  // Público para que HomeCubit lo reutilice sin duplicar el mapa en memoria.
+  static String removeDiacritics(String text) =>
       String.fromCharCodes(text.runes.map((r) => _diacriticMap[r] ?? r));
 
-  static String _normalizeName(String input) => _removeDiacritics(input)
+  static String _normalizeName(String input) => removeDiacritics(input)
       .toLowerCase()
       .replaceAll('-', ' ')
       .replaceAll(RegExp(r'[^a-z0-9\s]'), '')

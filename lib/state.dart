@@ -11,85 +11,54 @@ enum TriFilter { all, yes, no }
 enum SliderDistribution { discrete, quadratic, cubic }
 enum ExperienceFilter { any, coop, pvp, both }
 
-class HomeState {
-  final List<Game> filteredGames;
-  final int gameCount;
-  final double totalBytes;
+// ─── ESTADO ───
 
-  // Estado de las operaciones en segundo plano
-  final bool isFetchingGfnDb;
-  final int steamQueueSize;
-  final int hltbQueueSize;
+class HomeState({
+  final List<Game> filteredGames = const [],
+  final int gameCount = 0,
+  final double totalBytes = 0,
+
+  // Estado de operaciones en segundo plano
+  final bool isFetchingGfnDb = false,
+  final int steamQueueSize = 0,
+  final int hltbQueueSize = 0,
 
   // Configuración y rutas
-  final String? esDePath;
-  final Map<String, Map<String, dynamic>> filterProfiles;
+  final String? esDePath,
+  final Map<String, Map<String, dynamic>> filterProfiles = const {},
 
   // Ordenación
-  final String sortBy;
-  final bool sortAsc;
+  final String sortBy = 'name',
+  final bool sortAsc = true,
 
-  // Filtros — categorías y visibilidad
-  final String searchQuery;
-  final Set<GameStatus> visibleStatuses;
-  final Set<GameLanguage> visibleLanguages;
-  final Set<SpType> visibleSpTypes;
-  final Set<VrSupport> visibleVrTypes;
-  final bool includeSoftware;
+  // Filtros — búsqueda y visibilidad
+  final String searchQuery = '',
+  final Set<GameStatus> visibleStatuses = const {},
+  final Set<GameLanguage> visibleLanguages = const {},
+  final Set<SpType> visibleSpTypes = const {},
+  final Set<VrSupport> visibleVrTypes = const {},
+  final bool includeSoftware = false,
 
   // Filtros — características de juego
-  final TriFilter friendPlayFilter;
-  final ExperienceFilter friendPlayExperience;
-  final TriFilter matchmakingFilter;
-  final ExperienceFilter matchmakingExperience;
-  final TriFilter achievementsFilter;
-  final TriFilter steamCloudFilter;
-  final TriFilter priceFilter;
-  final TriFilter geforceNowFilter;
+  final TriFilter friendPlayFilter = TriFilter.all,
+  final ExperienceFilter friendPlayExperience = ExperienceFilter.any,
+  final TriFilter matchmakingFilter = TriFilter.all,
+  final ExperienceFilter matchmakingExperience = ExperienceFilter.any,
+  final TriFilter achievementsFilter = TriFilter.all,
+  final TriFilter steamCloudFilter = TriFilter.all,
+  final TriFilter priceFilter = TriFilter.all,
+  final TriFilter geforceNowFilter = TriFilter.all,
 
   // Slider — formato, distribución y límites
-  final bool binaryFormat;
-  final SliderDistribution sliderDistribution;
-  final double absoluteMinBytes;
-  final double absoluteMaxBytes;
-  final double currentMinBytes;
-  final double currentMaxBytes;
-
+  final bool binaryFormat = false,
+  final SliderDistribution sliderDistribution = SliderDistribution.discrete,
+  final double absoluteMinBytes = 0,
+  final double absoluteMaxBytes = 1,
+  final double currentMinBytes = 0,
+  final double currentMaxBytes = 1,
+}) {
   bool get isFetchingSteam => steamQueueSize > 0;
   bool get isFetchingHltb => hltbQueueSize > 0;
-
-  const HomeState({
-    this.filteredGames = const [],
-    this.gameCount = 0,
-    this.totalBytes = 0,
-    this.isFetchingGfnDb = false,
-    this.steamQueueSize = 0,
-    this.hltbQueueSize = 0,
-    this.esDePath,
-    this.filterProfiles = const {},
-    this.sortBy = 'name',
-    this.sortAsc = true,
-    this.searchQuery = '',
-    this.visibleStatuses = const {},
-    this.visibleLanguages = const {},
-    this.visibleSpTypes = const {},
-    this.visibleVrTypes = const {},
-    this.includeSoftware = false,
-    this.friendPlayFilter = TriFilter.all,
-    this.friendPlayExperience = ExperienceFilter.any,
-    this.matchmakingFilter = TriFilter.all,
-    this.matchmakingExperience = ExperienceFilter.any,
-    this.achievementsFilter = TriFilter.all,
-    this.steamCloudFilter = TriFilter.all,
-    this.priceFilter = TriFilter.all,
-    this.geforceNowFilter = TriFilter.all,
-    this.binaryFormat = false,
-    this.sliderDistribution = SliderDistribution.discrete,
-    this.absoluteMinBytes = 0,
-    this.absoluteMaxBytes = 1,
-    this.currentMinBytes = 0,
-    this.currentMaxBytes = 1,
-  });
 
   HomeState copyWith({
     List<Game>? filteredGames,
@@ -122,40 +91,38 @@ class HomeState {
     double? absoluteMaxBytes,
     double? currentMinBytes,
     double? currentMaxBytes,
-  }) {
-    return HomeState(
-      filteredGames: filteredGames ?? this.filteredGames,
-      gameCount: gameCount ?? this.gameCount,
-      totalBytes: totalBytes ?? this.totalBytes,
-      isFetchingGfnDb: isFetchingGfnDb ?? this.isFetchingGfnDb,
-      steamQueueSize: steamQueueSize ?? this.steamQueueSize,
-      hltbQueueSize: hltbQueueSize ?? this.hltbQueueSize,
-      esDePath: esDePath ?? this.esDePath,
-      filterProfiles: filterProfiles ?? this.filterProfiles,
-      sortBy: sortBy ?? this.sortBy,
-      sortAsc: sortAsc ?? this.sortAsc,
-      searchQuery: searchQuery ?? this.searchQuery,
-      visibleStatuses: visibleStatuses ?? this.visibleStatuses,
-      visibleLanguages: visibleLanguages ?? this.visibleLanguages,
-      visibleSpTypes: visibleSpTypes ?? this.visibleSpTypes,
-      visibleVrTypes: visibleVrTypes ?? this.visibleVrTypes,
-      includeSoftware: includeSoftware ?? this.includeSoftware,
-      friendPlayFilter: friendPlayFilter ?? this.friendPlayFilter,
-      friendPlayExperience: friendPlayExperience ?? this.friendPlayExperience,
-      matchmakingFilter: matchmakingFilter ?? this.matchmakingFilter,
-      matchmakingExperience: matchmakingExperience ?? this.matchmakingExperience,
-      achievementsFilter: achievementsFilter ?? this.achievementsFilter,
-      steamCloudFilter: steamCloudFilter ?? this.steamCloudFilter,
-      priceFilter: priceFilter ?? this.priceFilter,
-      geforceNowFilter: geforceNowFilter ?? this.geforceNowFilter,
-      binaryFormat: binaryFormat ?? this.binaryFormat,
-      sliderDistribution: sliderDistribution ?? this.sliderDistribution,
-      absoluteMinBytes: absoluteMinBytes ?? this.absoluteMinBytes,
-      absoluteMaxBytes: absoluteMaxBytes ?? this.absoluteMaxBytes,
-      currentMinBytes: currentMinBytes ?? this.currentMinBytes,
-      currentMaxBytes: currentMaxBytes ?? this.currentMaxBytes,
-    );
-  }
+  }) => HomeState(
+    filteredGames: filteredGames ?? this.filteredGames,
+    gameCount: gameCount ?? this.gameCount,
+    totalBytes: totalBytes ?? this.totalBytes,
+    isFetchingGfnDb: isFetchingGfnDb ?? this.isFetchingGfnDb,
+    steamQueueSize: steamQueueSize ?? this.steamQueueSize,
+    hltbQueueSize: hltbQueueSize ?? this.hltbQueueSize,
+    esDePath: esDePath ?? this.esDePath,
+    filterProfiles: filterProfiles ?? this.filterProfiles,
+    sortBy: sortBy ?? this.sortBy,
+    sortAsc: sortAsc ?? this.sortAsc,
+    searchQuery: searchQuery ?? this.searchQuery,
+    visibleStatuses: visibleStatuses ?? this.visibleStatuses,
+    visibleLanguages: visibleLanguages ?? this.visibleLanguages,
+    visibleSpTypes: visibleSpTypes ?? this.visibleSpTypes,
+    visibleVrTypes: visibleVrTypes ?? this.visibleVrTypes,
+    includeSoftware: includeSoftware ?? this.includeSoftware,
+    friendPlayFilter: friendPlayFilter ?? this.friendPlayFilter,
+    friendPlayExperience: friendPlayExperience ?? this.friendPlayExperience,
+    matchmakingFilter: matchmakingFilter ?? this.matchmakingFilter,
+    matchmakingExperience: matchmakingExperience ?? this.matchmakingExperience,
+    achievementsFilter: achievementsFilter ?? this.achievementsFilter,
+    steamCloudFilter: steamCloudFilter ?? this.steamCloudFilter,
+    priceFilter: priceFilter ?? this.priceFilter,
+    geforceNowFilter: geforceNowFilter ?? this.geforceNowFilter,
+    binaryFormat: binaryFormat ?? this.binaryFormat,
+    sliderDistribution: sliderDistribution ?? this.sliderDistribution,
+    absoluteMinBytes: absoluteMinBytes ?? this.absoluteMinBytes,
+    absoluteMaxBytes: absoluteMaxBytes ?? this.absoluteMaxBytes,
+    currentMinBytes: currentMinBytes ?? this.currentMinBytes,
+    currentMaxBytes: currentMaxBytes ?? this.currentMaxBytes,
+  );
 
   @override
   bool operator ==(Object other) {
@@ -228,6 +195,8 @@ class HomeState {
   ]);
 }
 
+// ─── CUBIT ───
+
 class HomeCubit extends Cubit<HomeState> {
   // Tabla de verdad en memoria: fuente canónica para todos los hilos de tarea.
   // Los workers de cola leen/escriben aquí directamente sin depender del snapshot de HomeState.
@@ -249,6 +218,10 @@ class HomeCubit extends Cubit<HomeState> {
   bool _isHltbQueueRunning = false;
   bool _isGfnQueueRunning = false;
 
+  // Caché de los límites brutos de tamaño en bytes.
+  // Se invalida (null) en limpiezas completas o importaciones con reemplazo total.
+  ({double min, double max})? _sizeCache;
+
   HomeCubit() : super(HomeState(
     visibleStatuses: GameStatus.values.toSet(),
     visibleLanguages: GameLanguage.values.toSet(),
@@ -260,58 +233,42 @@ class HomeCubit extends Cubit<HomeState> {
 
   Game? gameById(String id) => _gamesById[id];
 
-  // ===============================================
-  // PERSISTENCIA LOCAL
-  // ===============================================
+  // ─── RUTAS ───
 
-  Future<File> get _localFile async {
-    Directory? directory;
+  // `getApplicationDocumentsDirectory` y `getExternalStorageDirectory` son
+  // llamadas de plataforma costosas. Con `late final` el Future se resuelve una
+  // sola vez; todas las awaits posteriores devuelven el valor ya cacheado.
+
+  late final Future<String> _basePath = _resolveBasePath();
+
+  Future<String> _resolveBasePath() async {
     if (Platform.isAndroid) {
       final extDir = await getExternalStorageDirectory();
-      if (extDir != null) directory = extDir.parent;
+      if (extDir != null) return extDir.parent.path;
     }
-    directory ??= await getApplicationDocumentsDirectory();
-    return File('${directory.path}/db.json');
+    return (await getApplicationDocumentsDirectory()).path;
   }
 
+  late final Future<File> _localFile = _basePath.then((p) => File('$p/db.json'));
+
+  late final Future<File> _gfnLocalFile = _basePath.then((p) => File('$p/gfn_db.json'));
+
+  /// NOT late final: clearJson() puede borrar el directorio; necesitamos
+  /// comprobar y recrearlo en cada acceso.
   Future<Directory> get _gamesDir async {
-    Directory? directory;
-    if (Platform.isAndroid) {
-      final extDir = await getExternalStorageDirectory();
-      if (extDir != null) directory = extDir.parent;
-    }
-    directory ??= await getApplicationDocumentsDirectory();
-    final dir = Directory('${directory.path}/games');
+    final dir = Directory('${await _basePath}/games');
     if (!await dir.exists()) await dir.create(recursive: true);
     return dir;
   }
 
-  Future<File> get _gfnLocalFile async {
-    Directory? directory;
-    if (Platform.isAndroid) {
-      final extDir = await getExternalStorageDirectory();
-      if (extDir != null) directory = extDir.parent;
-    }
-    directory ??= await getApplicationDocumentsDirectory();
-    return File('${directory.path}/gfn_db.json');
-  }
-
-  // Utilidades seguras para parsear enums
-  T? _parseEnum<T extends Enum>(Iterable<T> values, String? name) {
-    if (name == null) return null;
-    for (final v in values) {
-      if (v.name == name) return v;
-    }
-    return null;
-  }
+  // ─── HELPERS DE PARSEO ───────────────────────────────────────────────────────
 
   Set<T>? _parseEnumSet<T extends Enum>(Iterable<T> values, dynamic list) {
     if (list is! List) return null;
-    final set = <T>{};
-    for (final item in list) {
-      final parsed = _parseEnum(values, item?.toString());
-      if (parsed != null) set.add(parsed);
-    }
+    final set = list
+        .map((e) => values.byNameOrNull(e?.toString()))
+        .whereType<T>()
+        .toSet();
     return set.isEmpty ? null : set;
   }
 
@@ -348,8 +305,7 @@ class HomeCubit extends Cubit<HomeState> {
     if (s.esDePath != null) 'esDePath': s.esDePath,
   };
 
-  HomeState _restoreFilters(HomeState current, Map<String, dynamic> profile) {
-    return current.copyWith(
+  HomeState _restoreFilters(HomeState current, Map<String, dynamic> profile) => current.copyWith(
       searchQuery: profile['searchQuery'] as String? ?? current.searchQuery,
       visibleLanguages: _parseEnumSet(GameLanguage.values, profile['visibleLanguages']) ?? current.visibleLanguages,
       visibleStatuses: _parseEnumSet(GameStatus.values, profile['visibleStatuses']) ?? current.visibleStatuses,
@@ -357,21 +313,22 @@ class HomeCubit extends Cubit<HomeState> {
       visibleVrTypes: _parseEnumSet(VrSupport.values, profile['visibleVrTypes']) ?? current.visibleVrTypes,
       includeSoftware: profile['includeSoftware'] as bool? ?? current.includeSoftware,
       binaryFormat: profile['binaryFormat'] as bool? ?? current.binaryFormat,
-      matchmakingFilter: _parseEnum(TriFilter.values, profile['matchmakingFilter'] as String?) ?? current.matchmakingFilter,
-      matchmakingExperience: _parseEnum(ExperienceFilter.values, profile['matchmakingExperience'] as String?) ?? current.matchmakingExperience,
-      friendPlayFilter: _parseEnum(TriFilter.values, profile['friendPlayFilter'] as String?) ?? current.friendPlayFilter,
-      friendPlayExperience: _parseEnum(ExperienceFilter.values, profile['friendPlayExperience'] as String?) ?? current.friendPlayExperience,
-      achievementsFilter: _parseEnum(TriFilter.values, profile['achievementsFilter'] as String?) ?? current.achievementsFilter,
-      steamCloudFilter: _parseEnum(TriFilter.values, profile['steamCloudFilter'] as String?) ?? current.steamCloudFilter,
-      priceFilter: _parseEnum(TriFilter.values, profile['priceFilter'] as String?) ?? current.priceFilter,
-      geforceNowFilter: _parseEnum(TriFilter.values, profile['geforceNowFilter'] as String?) ?? current.geforceNowFilter,
-      sliderDistribution: _parseEnum(SliderDistribution.values, profile['sliderDistribution'] as String?) ?? current.sliderDistribution,
+      matchmakingFilter: TriFilter.values.byNameOrNull(profile['matchmakingFilter'] as String?) ?? current.matchmakingFilter,
+      matchmakingExperience: ExperienceFilter.values.byNameOrNull(profile['matchmakingExperience'] as String?) ?? current.matchmakingExperience,
+      friendPlayFilter: TriFilter.values.byNameOrNull(profile['friendPlayFilter'] as String?) ?? current.friendPlayFilter,
+      friendPlayExperience: ExperienceFilter.values.byNameOrNull(profile['friendPlayExperience'] as String?) ?? current.friendPlayExperience,
+      achievementsFilter: TriFilter.values.byNameOrNull(profile['achievementsFilter'] as String?) ?? current.achievementsFilter,
+      steamCloudFilter: TriFilter.values.byNameOrNull(profile['steamCloudFilter'] as String?) ?? current.steamCloudFilter,
+      priceFilter: TriFilter.values.byNameOrNull(profile['priceFilter'] as String?) ?? current.priceFilter,
+      geforceNowFilter: TriFilter.values.byNameOrNull(profile['geforceNowFilter'] as String?) ?? current.geforceNowFilter,
+      sliderDistribution: SliderDistribution.values.byNameOrNull(profile['sliderDistribution'] as String?) ?? current.sliderDistribution,
       sortBy: profile['sortBy'] as String? ?? current.sortBy,
       sortAsc: profile['sortAsc'] as bool? ?? current.sortAsc,
       currentMinBytes: (profile['currentMinBytes'] as num?)?.toDouble() ?? current.currentMinBytes,
       currentMaxBytes: (profile['currentMaxBytes'] as num?)?.toDouble() ?? current.currentMaxBytes,
     );
-  }
+
+  // ─── CARGA / GUARDADO LOCAL ───
 
   /// Carga el estado inicial desde disco: primero los archivos de juego individuales en `games/`,
   /// después la configuración en `db.json`. Re-encola los juegos con fetches pendientes y
@@ -388,24 +345,19 @@ class HomeCubit extends Cubit<HomeState> {
           final content = await file.readAsString();
           return (file.uri.pathSegments.last, Game.fromJson(jsonDecode(content)));
         } catch (e) {
-          debugPrint("Error loading game file ${file.path}: $e");
+          debugPrint('Error loading game file ${file.path}: $e');
           return null;
         }
       }));
 
-      for (var res in results) {
-        if (res != null) {
-          final filename = res.$1;
-          final game = res.$2;
-          loadedGames[game.internalId] = game;
-          _gameFiles[game.internalId] = filename;
-
-          // Reanudar pendientes que fallaron por red (Prioridad normal)
-          if (game.idSteam != null) {
-            _steamIdToInternalId[game.idSteam!] = game.internalId;
-            if (!game.hasFetchedSteam) _enqueueForSteam(game.idSteam!);
-            if (!game.hasFetchedHltb) _enqueueForHltb(game.idSteam!);
-          }
+      for (final (filename, game) in results.nonNulls) {
+        loadedGames[game.internalId] = game;
+        _gameFiles[game.internalId] = filename;
+        // Reanudar pendientes que fallaron por red (Prioridad normal)
+        if (game.idSteam != null) {
+          _steamIdToInternalId[game.idSteam!] = game.internalId;
+          if (!game.hasFetchedSteam) _enqueueForSteam(game.idSteam!);
+          if (!game.hasFetchedHltb) _enqueueForHltb(game.idSteam!);
         }
       }
     }
@@ -418,33 +370,33 @@ class HomeCubit extends Cubit<HomeState> {
     if (await file.exists()) {
       try {
         final decoded = jsonDecode(await file.readAsString());
-        if (decoded case {'settings': Map settings}) {
+        if (decoded case {'settings': Map<String, dynamic> settings}) {
           newState = state.copyWith(
             visibleLanguages: _parseEnumSet(GameLanguage.values, settings['visibleLanguages']),
             visibleStatuses: _parseEnumSet(GameStatus.values, settings['visibleStatuses']),
             visibleSpTypes: _parseEnumSet(SpType.values, settings['visibleSpTypes']),
             visibleVrTypes: _parseEnumSet(VrSupport.values, settings['visibleVrTypes']),
-            includeSoftware: settings['includeSoftware'],
-            binaryFormat: settings['binaryFormat'],
-            matchmakingFilter: _parseEnum(TriFilter.values, settings['matchmakingFilter']),
-            matchmakingExperience: _parseEnum(ExperienceFilter.values, settings['matchmakingExperience']),
-            friendPlayFilter: _parseEnum(TriFilter.values, settings['friendPlayFilter']),
-            friendPlayExperience: _parseEnum(ExperienceFilter.values, settings['friendPlayExperience']),
-            achievementsFilter: _parseEnum(TriFilter.values, settings['achievementsFilter']),
-            steamCloudFilter: _parseEnum(TriFilter.values, settings['steamCloudFilter']),
-            priceFilter: _parseEnum(TriFilter.values, settings['priceFilter']),
-            geforceNowFilter: _parseEnum(TriFilter.values, settings['geforceNowFilter']),
-            sliderDistribution: _parseEnum(SliderDistribution.values, settings['sliderDistribution']),
-            sortBy: settings['sortBy'],
-            sortAsc: settings['sortAsc'],
-            esDePath: settings['esDePath'],
-            currentMinBytes: settings['currentMinBytes']?.toDouble(),
-            currentMaxBytes: settings['currentMaxBytes']?.toDouble(),
+            includeSoftware: settings['includeSoftware'] as bool?,
+            binaryFormat: settings['binaryFormat'] as bool?,
+            matchmakingFilter: TriFilter.values.byNameOrNull(settings['matchmakingFilter'] as String?),
+            matchmakingExperience: ExperienceFilter.values.byNameOrNull(settings['matchmakingExperience'] as String?),
+            friendPlayFilter: TriFilter.values.byNameOrNull(settings['friendPlayFilter'] as String?),
+            friendPlayExperience: ExperienceFilter.values.byNameOrNull(settings['friendPlayExperience'] as String?),
+            achievementsFilter: TriFilter.values.byNameOrNull(settings['achievementsFilter'] as String?),
+            steamCloudFilter: TriFilter.values.byNameOrNull(settings['steamCloudFilter'] as String?),
+            priceFilter: TriFilter.values.byNameOrNull(settings['priceFilter'] as String?),
+            geforceNowFilter: TriFilter.values.byNameOrNull(settings['geforceNowFilter'] as String?),
+            sliderDistribution: SliderDistribution.values.byNameOrNull(settings['sliderDistribution'] as String?),
+            sortBy: settings['sortBy'] as String?,
+            sortAsc: settings['sortAsc'] as bool?,
+            esDePath: settings['esDePath'] as String?,
+            currentMinBytes: (settings['currentMinBytes'] as num?)?.toDouble(),
+            currentMaxBytes: (settings['currentMaxBytes'] as num?)?.toDouble(),
             filterProfiles: _parseFilterProfiles(settings['filterProfiles']),
           );
         }
       } catch (e) {
-        debugPrint("Error al cargar estado local: $e");
+        debugPrint('Error al cargar estado local: $e');
       }
     }
 
@@ -467,7 +419,7 @@ class HomeCubit extends Cubit<HomeState> {
     await file.writeAsString(jsonEncode({'settings': _extractFilters(currentState)}));
   }
 
-  // ─── NÚCLEO DE PARCHEO — tres niveles de efecto ────────────────────────────
+  // ─── NÚCLEO DE PARCHEO ───
 
   /// [1] Actualiza solo la tabla de verdad en memoria. Sin I/O, sin emit.
   void _updateGameInMemory(Game game, Map<String, dynamic> patch) {
@@ -537,25 +489,21 @@ class HomeCubit extends Cubit<HomeState> {
       _gameFiles[id] = filename;
     }
     final dir = await _gamesDir;
-    final file = File('${dir.path}/$filename');
-    await file.writeAsString(jsonEncode(game.toJson()));
+    await File('${dir.path}/$filename').writeAsString(jsonEncode(game.toJson()));
   }
 
-  // ===============================================
-  // IMPORTACIÓN / EXPORTACIÓN
-  // ===============================================
+  // ─── IMPORTACIÓN / EXPORTACIÓN ───
 
   String exportGamesJson() {
     if (_gamesById.isEmpty) return '[]';
     final sorted = _gamesById.values.toList()
       ..sort((a, b) => _compareCustom(a.name ?? '', b.name ?? ''));
-    final buffer = StringBuffer();
-    buffer.writeln('[');
+    final buffer = StringBuffer('[');
     for (int i = 0; i < sorted.length; i++) {
-      buffer.write('  ${jsonEncode(sorted[i].toJson())}');
-      buffer.writeln(i < sorted.length - 1 ? ',' : '');
+      buffer.write('\n  ${jsonEncode(sorted[i].toJson())}');
+      if (i < sorted.length - 1) buffer.write(',');
     }
-    buffer.write(']');
+    buffer.write('\n]');
     return buffer.toString();
   }
 
@@ -575,9 +523,8 @@ class HomeCubit extends Cubit<HomeState> {
     if (replace) {
       final gamesDir = await _gamesDir;
       if (await gamesDir.exists()) {
-        final files = gamesDir.listSync();
-        for (var f in files) {
-          if (f is File && f.path.endsWith('.json')) await f.delete();
+        for (final f in gamesDir.listSync().whereType<File>()) {
+          if (f.path.endsWith('.json')) await f.delete();
         }
       }
       _gameFiles.clear();
@@ -585,35 +532,42 @@ class HomeCubit extends Cubit<HomeState> {
       _hltbQueue.clear();
       _gamesById.clear();
       _steamIdToInternalId.clear();
+      _sizeCache = null;
     }
 
     final Map<String, Game> newAllGames = Map.from(_gamesById);
-
     final gamesToSave = <Game>[];
 
-    for (final rawGame in rawList) {
-      if (rawGame is! Map<String, dynamic>) continue;
+    // Acumular en variables locales para evitar un segundo recorrido O(N) dentro de _updateLimits.
+    var cMin = _sizeCache?.min ?? double.infinity;
+    var cMax = _sizeCache?.max ?? double.negativeInfinity;
 
+    for (final rawGame in rawList.whereType<Map<String, dynamic>>()) {
       final steamId = rawGame['id_steam'];
       final gameName = rawGame['name']?.toString();
-
       if (steamId == null && (gameName == null || gameName.trim().isEmpty)) continue;
 
       final g = Game.fromJson(rawGame);
       if (replace || !newAllGames.containsKey(g.internalId)) {
         newAllGames[g.internalId] = g;
-        gamesToSave.add(g);
       } else {
         newAllGames[g.internalId] = newAllGames[g.internalId]!.updateFromJson(rawGame);
-        gamesToSave.add(newAllGames[g.internalId]!);
       }
+      final finalGame = newAllGames[g.internalId]!;
+      gamesToSave.add(finalGame);
+
+      // Actualización incremental de la caché para evitar un segundo scan O(N).
+      final size = finalGame.sizeInBytes;
+      if (size < cMin) cMin = size;
+      if (size > cMax) cMax = size;
     }
+
+    if (gamesToSave.isNotEmpty) _sizeCache = (min: cMin, max: cMax);
 
     _gamesById.addAll(newAllGames);
     for (final g in newAllGames.values) {
       if (g.idSteam != null) _steamIdToInternalId[g.idSteam!] = g.internalId;
     }
-
     for (final g in gamesToSave) {
       if (g.idSteam != null) {
         if (!g.hasFetchedSteam) _enqueueForSteam(g.idSteam!);
@@ -638,9 +592,8 @@ class HomeCubit extends Cubit<HomeState> {
     _startGfnComparisonQueue();
   }
 
-  // ===============================================
-  // GEFORCE NOW API & DB QUEUE
-  // ===============================================
+  // ─── GEFORCE NOW API & DB QUEUE ───
+
   /// Descarga el catálogo completo de GeForce NOW via GraphQL paginado y lo persiste en `gfn_db.json`.
   /// Marca todos los juegos como pendientes de comparación y dispara `_startGfnComparisonQueue`.
   Future<void> fetchGeforceNowDatabase() async {
@@ -649,15 +602,14 @@ class HomeCubit extends Cubit<HomeState> {
 
     try {
       final client = HttpClient();
-      String afterValue = "";
+      String afterValue = '';
       bool hasNextPage = true;
-      Set<int> steamIdsInGfn = {};
+      final Set<int> steamIdsInGfn = {};
 
       while (hasNextPage) {
         final request = await client.postUrl(Uri.parse('https://api-prod.nvidia.com/services/gfngames/v1/gameList'));
-        request.headers.set('Content-Type', 'application/json');
-        request.headers.set('Accept', 'application/json');
-
+        request.headers..set('Content-Type', 'application/json')
+          ..set('Accept', 'application/json');
         request.write('''
         {
           apps(country: "US", language: "en_US", after: "$afterValue") {
@@ -668,39 +620,27 @@ class HomeCubit extends Cubit<HomeState> {
         ''');
 
         final response = await request.close();
+        if (response.statusCode != 200) break;
 
-        if (response.statusCode == 200) {
-          final data = jsonDecode(await response.transform(utf8.decoder).join())['data']?['apps'];
-          if (data == null) break;
+        final data = jsonDecode(await response.transform(utf8.decoder).join())?['data']?['apps'];
+        if (data == null) break;
 
-          hasNextPage = data['pageInfo']?['hasNextPage'] ?? false;
-          afterValue = data['pageInfo']?['endCursor'] ?? "";
+        hasNextPage = data['pageInfo']?['hasNextPage'] as bool? ?? false;
+        afterValue = data['pageInfo']?['endCursor'] as String? ?? '';
 
-          final items = data['items'] as List?;
-          if (items != null) {
-            for (var item in items) {
-              final variants = item['variants'] as List?;
-              if (variants != null) {
-                for (var variant in variants) {
-                  final store = variant['appStore']?.toString().toUpperCase();
-                  if (store == 'STEAM' || store == '11') {
-                    final storeId = int.tryParse(variant['storeId']?.toString() ?? '');
-                    if (storeId != null) steamIdsInGfn.add(storeId);
-                  }
-                }
-              }
+        for (final item in (data['items'] as List? ?? [])) {
+          for (final variant in (item['variants'] as List? ?? [])) {
+            if (variant['appStore']?.toString().toUpperCase() case 'STEAM' || '11') {
+              final storeId = int.tryParse(variant['storeId']?.toString() ?? '');
+              if (storeId != null) steamIdsInGfn.add(storeId);
             }
           }
-        } else {
-          break;
         }
       }
       client.close();
 
       if (steamIdsInGfn.isNotEmpty) {
-        final file = await _gfnLocalFile;
-        await file.writeAsString(jsonEncode(steamIdsInGfn.toList()));
-
+        await (await _gfnLocalFile).writeAsString(jsonEncode(steamIdsInGfn.toList()));
         // Solo memoria: _startGfnComparisonQueue escribirá los valores correctos al disco.
         for (final id in _gamesById.keys.toList()) {
           _gamesById[id] = _gamesById[id]!.updateFromJson({'has_fetched_gfn': false});
@@ -709,7 +649,7 @@ class HomeCubit extends Cubit<HomeState> {
         _startGfnComparisonQueue();
       }
     } catch (e) {
-      debugPrint("Error obteniendo GFN DB: $e");
+      debugPrint('Error obteniendo GFN DB: $e');
     }
 
     emit(state.copyWith(isFetchingGfnDb: false));
@@ -720,24 +660,22 @@ class HomeCubit extends Cubit<HomeState> {
   /// el event loop entre cada lote.
   Future<void> _startGfnComparisonQueue() async {
     if (_isGfnQueueRunning) return;
-
     final file = await _gfnLocalFile;
     if (!await file.exists()) return;
-
     _isGfnQueueRunning = true;
 
     try {
-      final Set<int> gfnSteamIds = (jsonDecode(await file.readAsString()) as List)
+      final gfnSteamIds = (jsonDecode(await file.readAsString()) as List)
           .map((e) => int.tryParse(e.toString()) ?? 0)
           .toSet();
 
-      final Map<String, Map<String, dynamic>> pendingPatches = {};
-      for (var g in _gamesById.values) {
-        if (!g.hasFetchedGfn) {
-          final isGfn = g.idSteam != null ? gfnSteamIds.contains(g.idSteam) : g.isGeforceNow;
-          pendingPatches[g.internalId] = {'is_geforce_now': isGfn, 'has_fetched_gfn': true};
-        }
-      }
+      final pendingPatches = <String, Map<String, dynamic>>{
+        for (final g in _gamesById.values.where((g) => !g.hasFetchedGfn))
+          g.internalId: {
+            'is_geforce_now': g.idSteam != null ? gfnSteamIds.contains(g.idSteam) : g.isGeforceNow,
+            'has_fetched_gfn': true
+          },
+      };
 
       if (pendingPatches.isNotEmpty) {
         for (final entry in pendingPatches.entries) {
@@ -773,23 +711,17 @@ class HomeCubit extends Cubit<HomeState> {
         }
       }
     } catch (e) {
-      debugPrint("Error en cola de comparación GFN: $e");
+      debugPrint('Error en cola de comparación GFN: $e');
     }
 
     _isGfnQueueRunning = false;
   }
 
-  // ===============================================
-  // COLA DE STEAM API
-  // ===============================================
+  // ─── COLA DE STEAM API ───
 
   void _enqueueForSteam(int id, {bool priority = false}) {
-    if (_steamQueue.contains(id)) _steamQueue.remove(id);
-    if (priority) {
-      _steamQueue.insert(0, id);
-    } else {
-      _steamQueue.add(id);
-    }
+    _steamQueue.remove(id);
+    priority ? _steamQueue.insert(0, id) : _steamQueue.add(id);
   }
 
   /// Procesa la cola de Steam de forma secuencial: obtiene metadatos via `GetItems/v1`,
@@ -804,17 +736,22 @@ class HomeCubit extends Cubit<HomeState> {
 
     while (_steamQueue.isNotEmpty) {
       final idSteam = _steamQueue.removeAt(0);
-
-      // Lee de la tabla de verdad, no del snapshot de HomeState.
       final internalId = _steamIdToInternalId[idSteam];
       final game = internalId != null ? _gamesById[internalId] : null;
       if (game == null) continue;
 
       final isRefetch = game.hasFetchedSteam;
       final needsFetch = isRefetch ||
-          game.name == null || game.isSoftware == null || game.isFree == null ||
-          game.hasSpanish == null || game.spType == null || game.hasSteamCloud == null ||
-          game.vrSupport == null || game.matchmaking == null || game.friendPlay == null || game.hasAchievements == null;
+          game.name == null ||
+          game.isSoftware == null ||
+          game.isFree == null ||
+          game.hasSpanish == null ||
+          game.spType == null ||
+          game.hasSteamCloud == null ||
+          game.vrSupport == null ||
+          game.matchmaking == null ||
+          game.friendPlay == null ||
+          game.hasAchievements == null;
 
       if (!needsFetch) {
         _applyQueuePatch(game, {'has_fetched_steam': true});
@@ -829,13 +766,10 @@ class HomeCubit extends Cubit<HomeState> {
           'ids': [{'appid': idSteam}],
         });
         final uri = Uri.parse('https://api.steampowered.com/IStoreBrowseService/GetItems/v1?input_json=${Uri.encodeComponent(inputJson)}');
-        final request = await client.getUrl(uri);
-        final response = await request.close();
+        final response = await (await client.getUrl(uri)).close();
 
         if (response.statusCode == 200) {
-          final jsonStr = await response.transform(utf8.decoder).join();
-          final payload = jsonDecode(jsonStr);
-
+          final payload = jsonDecode(await response.transform(utf8.decoder).join());
           final storeItems = payload['response']?['store_items'];
           if (storeItems is List && storeItems.isNotEmpty) {
             final item = storeItems.first as Map<String, dynamic>;
@@ -860,7 +794,7 @@ class HomeCubit extends Cubit<HomeState> {
           _applyQueuePatch(game, {'has_fetched_steam': true});
         }
       } catch (e) {
-        debugPrint("Steam API error de red: $e");
+        debugPrint('Steam API error de red: $e');
         emit(state.copyWith(steamQueueSize: 0));
         break;
       }
@@ -880,11 +814,10 @@ class HomeCubit extends Cubit<HomeState> {
     final patch = <String, dynamic>{'has_fetched_steam': true};
 
     final name = item['name']?.toString();
-    if (name != null && (game.name == null || Game.normalizeIdName(game.name) == Game.normalizeIdName(name))) {
-      patch['name'] = name;
-    }
+    if (name != null && (game.name == null || Game.normalizeIdName(game.name) == Game.normalizeIdName(name))) patch['name'] = name;
 
     if (item['type'] is int) patch['is_software'] = isRefetch ? (item['type'] != 0) : (game.isSoftware ?? (item['type'] != 0));
+
     final isFree = item['is_free'] as bool?;
     if (isFree != null) patch['is_free'] = isRefetch ? isFree : (game.isFree ?? isFree);
 
@@ -951,8 +884,7 @@ class HomeCubit extends Cubit<HomeState> {
         final infFp = switch ((isPvp, isCoop)) {
           (true, true) => InteractionType.both,
           (true, false) => InteractionType.pvp,
-          (false, true) => InteractionType.coop,
-          (false, false) => InteractionType.coop,
+          (false, _) => InteractionType.coop,
         };
         if (game.friendPlay == null) patch['friend_play'] = infFp.name;
       }
@@ -961,17 +893,11 @@ class HomeCubit extends Cubit<HomeState> {
     return patch;
   }
 
-  // ===============================================
-  // COLA DE HLTB API
-  // ===============================================
+  // ─── COLA DE HLTB API ───
 
   void _enqueueForHltb(int id, {bool priority = false}) {
-    if (_hltbQueue.contains(id)) _hltbQueue.remove(id);
-    if (priority) {
-      _hltbQueue.insert(0, id);
-    } else {
-      _hltbQueue.add(id);
-    }
+    _hltbQueue.remove(id);
+    priority ? _hltbQueue.insert(0, id) : _hltbQueue.add(id);
   }
 
   /// Procesa la cola de HLTB de forma secuencial: delega en `HltbService.fetchGameStats`
@@ -1004,7 +930,7 @@ class HomeCubit extends Cubit<HomeState> {
           'has_fetched_hltb': true,
         });
       } catch (e) {
-        debugPrint("HLTB Error general: $e");
+        debugPrint('HLTB Error general: $e');
         emit(state.copyWith(hltbQueueSize: 0));
         break;
       }
@@ -1016,9 +942,8 @@ class HomeCubit extends Cubit<HomeState> {
     emit(_applyFilters(state.copyWith(hltbQueueSize: 0)));
   }
 
-  // ===============================================
-  // RE-FETCH EN MASA
-  // ===============================================
+  // ─── RE-FETCH ───
+
   Future<void> refetchSteamAll() async {
     for (final g in _gamesById.values.where((g) => g.idSteam != null)) {
       _enqueueForSteam(g.idSteam!);
@@ -1038,80 +963,41 @@ class HomeCubit extends Cubit<HomeState> {
   // ===============================================
   Future<void> refetchSteamForGame(Game game) async {
     if (game.idSteam == null) return;
-    // hasFetchedSteam=true en el juego indica al procesador de cola que es un refetch (sobreescribir todo)
     _enqueueForSteam((_gamesById[game.internalId] ?? game).idSteam!, priority: true);
     _startSteamQueue();
   }
 
   Future<void> refetchGfnForGame(Game game) async {
     if (game.idSteam == null) return;
-    final currentGame = _gamesById[game.internalId] ?? game;
-
-    _patchGame(currentGame, {'has_fetched_gfn': false});
+    _patchGame(_gamesById[game.internalId] ?? game, {'has_fetched_gfn': false});
     _startGfnComparisonQueue();
   }
 
   Future<void> refetchHltbForGame(Game game) async {
     if (game.idSteam == null) return;
-    final currentGame = _gamesById[game.internalId] ?? game;
-    // hasFetchedHltb=true en el juego indica al procesador de cola que es un refetch (sobreescribir todo)
-    _enqueueForHltb(currentGame.idSteam!, priority: true);
+    _enqueueForHltb((_gamesById[game.internalId] ?? game).idSteam!, priority: true);
     _startHltbQueue();
   }
 
-  // ===============================================
-  // PERFILES DE FILTRO
-  // ===============================================
-  void saveFilterProfile(String name) {
-    if (name.trim().isEmpty) return;
-    final profiles = Map<String, Map<String, dynamic>>.from(state.filterProfiles);
-    profiles[name.trim()] = _extractFilters(state);
-    final newState = state.copyWith(filterProfiles: profiles);
-    emit(newState);
-    _saveLocalState(newState);
-  }
+  // ─── MÉTODOS DE INTERFAZ Y MUTACIÓN MANUAL ───
 
-  void loadFilterProfile(String name) {
-    final profile = state.filterProfiles[name];
-    if (profile == null) return;
-    var newState = _restoreFilters(state, profile);
-    newState = _applyFilters(_updateLimits(newState));
-    emit(newState);
-    _saveLocalState(newState);
-  }
+  void updateGameStatus(Game game, GameStatus newStatus) =>
+      _patchGame(game, {'status': newStatus.name});
 
-  void deleteFilterProfile(String name) {
-    final profiles = Map<String, Map<String, dynamic>>.from(state.filterProfiles);
-    profiles.remove(name);
-    final newState = state.copyWith(filterProfiles: profiles);
-    emit(newState);
-    _saveLocalState(newState);
-  }
-
-  // ===============================================
-  // METODOS DE INTERFAZ Y MUTACIÓN MANUAL
-  // ===============================================
-
-  void updateGameStatus(Game game, GameStatus newStatus) {
-    _patchGame(game, {'status': newStatus.name});
-  }
-
-  void updateGameDetails(Game updatedGame, {Game? originalGame}) {
-    // updatedGame llega ya mutado vía copyWith; toJson como patch evita calcular el diff manualmente.
-    _patchGame(updatedGame, updatedGame.toJson());
-  }
+  void updateGameDetails(Game updatedGame, {Game? originalGame}) =>
+      _patchGame(updatedGame, updatedGame.toJson());
 
   Future<void> clearJson() async {
     final file = await _localFile;
     if (await file.exists()) await file.delete();
-
     final gamesDir = await _gamesDir;
     if (await gamesDir.exists()) await gamesDir.delete(recursive: true);
     _gameFiles.clear();
     _gamesById.clear();
     _steamIdToInternalId.clear();
     _writeChain.clear();
-
+    // Invalidar caché de rangos:  el catálogo quedó completamente vacío.
+    _sizeCache = null;
     emit(state.copyWith(filteredGames: [], totalBytes: 0, gameCount: 0, currentMinBytes: 0, currentMaxBytes: 1, absoluteMinBytes: 0, absoluteMaxBytes: 1));
   }
 
@@ -1165,7 +1051,6 @@ class HomeCubit extends Cubit<HomeState> {
       sliderDistribution: sliderDistribution,
       esDePath: esDePath,
     );
-
     if (binary != null) newState = _updateLimits(newState);
     newState = _applyFilters(newState);
     emit(newState);
@@ -1174,66 +1059,94 @@ class HomeCubit extends Cubit<HomeState> {
 
   void toggleStatusFilter(GameStatus status, bool isEnabled) {
     final newStatuses = Set<GameStatus>.from(state.visibleStatuses);
-    if (isEnabled) { newStatuses.add(status); } else { newStatuses.remove(status); }
+    isEnabled ? newStatuses.add(status) : newStatuses.remove(status);
     updateFlag(visibleStatuses: newStatuses);
   }
 
   void toggleLanguageFilter(GameLanguage language, bool isEnabled) {
     final newLangs = Set<GameLanguage>.from(state.visibleLanguages);
-    if (isEnabled) { newLangs.add(language); } else { newLangs.remove(language); }
+    isEnabled ? newLangs.add(language) : newLangs.remove(language);
     updateFlag(visibleLanguages: newLangs);
   }
 
   void toggleSpTypeFilter(SpType type, bool isEnabled) {
     final newTypes = Set<SpType>.from(state.visibleSpTypes);
-    if (isEnabled) { newTypes.add(type); } else { newTypes.remove(type); }
+    isEnabled ? newTypes.add(type) : newTypes.remove(type);
     updateFlag(visibleSpTypes: newTypes);
   }
 
   void toggleVrFilter(VrSupport type, bool isEnabled) {
     final newTypes = Set<VrSupport>.from(state.visibleVrTypes);
-    if (isEnabled) { newTypes.add(type); } else { newTypes.remove(type); }
+    isEnabled ? newTypes.add(type) : newTypes.remove(type);
     updateFlag(visibleVrTypes: newTypes);
   }
 
-  // ===============================================
-  // MOTOR DE FILTRADO Y ORDENACIÓN
-  // ===============================================
+  // ─── PERFILES DE FILTRO ───
 
-  /// Recalcula los límites absolutos del slider de tamaño según todos los juegos en memoria.
-  /// Si el rango actual está en su valor inicial (0–1), lo reinicia a los nuevos límites;
-  /// si ya fue ajustado por el usuario, lo preserva clampeado dentro del nuevo rango.
+  void saveFilterProfile(String name) {
+    if (name.trim().isEmpty) return;
+    final profiles = Map<String, Map<String, dynamic>>.from(state.filterProfiles);
+    profiles[name.trim()] = _extractFilters(state);
+    final newState = state.copyWith(filterProfiles: profiles);
+    emit(newState);
+    _saveLocalState(newState);
+  }
+
+  void loadFilterProfile(String name) {
+    final profile = state.filterProfiles[name];
+    if (profile == null) return;
+    // Actualiza límites en O(1) usando la caché de rangos: el catálogo no cambió,
+    // solo necesita recalcular el redondeo si el perfil cambia binaryFormat.
+    final newState = _applyFilters(_updateLimits(_restoreFilters(state, profile)));
+    emit(newState);
+    _saveLocalState(newState);
+  }
+
+  void deleteFilterProfile(String name) {
+    final profiles = Map<String, Map<String, dynamic>>.from(state.filterProfiles)..remove(name);
+    final newState = state.copyWith(filterProfiles: profiles);
+    emit(newState);
+    _saveLocalState(newState);
+  }
+
+  // ─── MOTOR DE FILTRADO Y ORDENACIÓN ───
+
+  /// Calcula los límites absolutos del slider de tamaño según todos los juegos en memoria.
+  /// 
+  /// Estrategia de caché (`_sizeCache`):
+  ///   · Inicialmente null → Escaneo O(N) obligatorio para poblarla.
+  ///   · Válida → Operación O(1) que calcula los redondeos de unidad (MB/GiB...).
+  /// 
+  /// Si el rango seleccionado por el usuario está en su valor inicial (0-1), se expande
+  /// a los nuevos límites; si ya fue ajustado, se preserva adaptándolo al nuevo rango.
   HomeState _updateLimits(HomeState s) {
     if (_gamesById.isEmpty) {
+      _sizeCache = null;
       return s.copyWith(absoluteMinBytes: 0, absoluteMaxBytes: 1, currentMinBytes: 0, currentMaxBytes: 1);
     }
 
-    double minB = _gamesById.values.first.sizeInBytes;
-    double maxB = minB;
-
-    for (var g in _gamesById.values) {
-      final size = g.sizeInBytes;
-      if (size < minB) minB = size;
-      if (size > maxB) maxB = size;
+    // Scan O(N) solo cuando la caché está invalidada.
+    if (_sizeCache == null) {
+      var minB = double.infinity;
+      var maxB = double.negativeInfinity;
+      for (final g in _gamesById.values) {
+        final size = g.sizeInBytes;
+        if (size < minB) minB = size;
+        if (size > maxB) maxB = size;
+      }
+      _sizeCache = (min: minB, max: maxB);
     }
 
-    final minDivisor = _getUnitDivisor(minB, s.binaryFormat);
-    final absMin = (minB / minDivisor).floor() * minDivisor;
-    final maxDivisor = _getUnitDivisor(maxB, s.binaryFormat);
-    double absMax = (maxB / maxDivisor).ceil() * maxDivisor;
-
+    final (:min, :max) = _sizeCache!;
+    final minDivisor = _getUnitDivisor(min, s.binaryFormat);
+    final absMin = (min / minDivisor).floor() * minDivisor;
+    final maxDivisor = _getUnitDivisor(max, s.binaryFormat);
+    var absMax = (max / maxDivisor).ceil() * maxDivisor;
     if (absMin == absMax) absMax += maxDivisor;
 
-    double cMin = s.currentMinBytes;
-    double cMax = s.currentMaxBytes;
-
-    if (cMin == 0 && cMax <= 1) {
-      cMin = absMin;
-      cMax = absMax;
-    } else {
-      cMin = cMin.clamp(absMin, absMax);
-      cMax = cMax.clamp(cMin, absMax);
-    }
+    final isInitialRange = s.currentMinBytes == 0 && s.currentMaxBytes <= 1;
+    final cMin = isInitialRange ? absMin : s.currentMinBytes.clamp(absMin, absMax);
+    final cMax = isInitialRange ? absMax : s.currentMaxBytes.clamp(cMin, absMax);
 
     return s.copyWith(
       absoluteMinBytes: absMin,
@@ -1243,99 +1156,64 @@ class HomeCubit extends Cubit<HomeState> {
     );
   }
 
-  // ===============================================
-  // ALGORITMOS DE NORMALIZACIÓN Y COMPARACIÓN
-  // ===============================================
+  // ─── ALGORITMOS DE NORMALIZACIÓN Y COMPARACIÓN ───
 
-  String _removeDiacritics(String text) {
-    const withDia = 'ÀÁÂÃÄÅàáâãäåÒÓÔÕÖØòóôõöøÈÉÊËèéêëÇçÌÍÎÏìíîïÙÚÛÜùúûüÑñ';
-    const withoutDia = 'AAAAAAaaaaaaOOOOOOooooooEEEEeeeeCcIIIIiiiiUUUUuuuuNn';
-    return text.split('').map((char) {
-      final index = withDia.indexOf(char);
-      return index != -1 ? withoutDia[index] : char;
-    }).join('');
-  }
+  static String _normalizeForSort(String text) => HltbService.removeDiacritics(text).toLowerCase().replaceAll('.', '');
 
-  String _normalizeForSort(String text) {
-    String normalized = _removeDiacritics(text).toLowerCase();
-    normalized = normalized.replaceAll('.', '');
-    return normalized;
-  }
+  static int _compareCustom(String a, String b) => _normalizeForSort(a).compareTo(_normalizeForSort(b));
 
-  int _compareCustom(String a, String b) => _normalizeForSort(a).compareTo(_normalizeForSort(b));
-
-  bool _matchSearchTitle(String title, String query) {
+  static bool _matchSearchTitle(String title, String query) {
     if (query.trim().isEmpty) return true;
-    final normalizedQuery = _removeDiacritics(query);
-    final normalizedTitle = _removeDiacritics(title);
-    final escapedParts = normalizedQuery.trim().split(RegExp(r' +')).map(RegExp.escape);
-    return RegExp(escapedParts.join(r'\s+'), caseSensitive: false).hasMatch(normalizedTitle);
+    final parts = HltbService.removeDiacritics(query).trim().split(RegExp(r' +')).map(RegExp.escape);
+    return RegExp(parts.join(r'\s+'), caseSensitive: false)
+        .hasMatch(HltbService.removeDiacritics(title));
   }
 
-  /// Aplica todos los filtros activos del estado sobre `_gamesById`, ordena el resultado
-  /// y recalcula `totalBytes` y `gameCount`. Es la única función que produce la lista visible.
-  HomeState _applyFilters(HomeState s) {
-    double totalBytes = 0;
+  /// DRY para los filtros de interacción (matchmaking y friendPlay).
+  static bool _matchesInteraction(InteractionType? actual, TriFilter filter, ExperienceFilter exp) {
+    if (filter == TriFilter.yes && (actual == null || actual == InteractionType.none)) return false;
+    if (filter == TriFilter.no && actual != null && actual != InteractionType.none) return false;
+    if (filter != TriFilter.no && exp != ExperienceFilter.any) {
+      if (actual == null || actual == InteractionType.none) return false;
+      return switch (exp) {
+        ExperienceFilter.coop => actual == InteractionType.coop || actual == InteractionType.both,
+        ExperienceFilter.pvp  => actual == InteractionType.pvp  || actual == InteractionType.both,
+        ExperienceFilter.both => actual == InteractionType.both,
+        ExperienceFilter.any  => true,
+      };
+    }
+    return true;
+  }
 
-    List<Game> filtered = _gamesById.values.where((g) {
+  HomeState _applyFilters(HomeState s) {
+    final filtered = _gamesById.values.where((g) {
       if (!_matchSearchTitle(g.name ?? '', s.searchQuery)) return false;
       if (!s.includeSoftware && g.isSoftware == true) return false;
       if (g.spType != null && !s.visibleSpTypes.contains(g.spType)) return false;
       if (g.vrSupport != null && !s.visibleVrTypes.contains(g.vrSupport)) return false;
-
-      if (s.matchmakingFilter == TriFilter.yes && (g.matchmaking == null || g.matchmaking == InteractionType.none)) return false;
-      if (s.matchmakingFilter == TriFilter.no && g.matchmaking != null && g.matchmaking != InteractionType.none) return false;
-
-      if (s.matchmakingFilter != TriFilter.no && s.matchmakingExperience != ExperienceFilter.any) {
-        if (g.matchmaking == null || g.matchmaking == InteractionType.none) return false;
-        if (s.matchmakingExperience == ExperienceFilter.coop && g.matchmaking != InteractionType.coop && g.matchmaking != InteractionType.both) return false;
-        if (s.matchmakingExperience == ExperienceFilter.pvp && g.matchmaking != InteractionType.pvp && g.matchmaking != InteractionType.both) return false;
-        if (s.matchmakingExperience == ExperienceFilter.both && g.matchmaking != InteractionType.both) return false;
-      }
-
-      if (s.friendPlayFilter == TriFilter.yes && (g.friendPlay == null || g.friendPlay == InteractionType.none)) return false;
-      if (s.friendPlayFilter == TriFilter.no && g.friendPlay != null && g.friendPlay != InteractionType.none) return false;
-
-      if (s.friendPlayFilter != TriFilter.no && s.friendPlayExperience != ExperienceFilter.any) {
-        if (g.friendPlay == null || g.friendPlay == InteractionType.none) return false;
-        if (s.friendPlayExperience == ExperienceFilter.coop && g.friendPlay != InteractionType.coop && g.friendPlay != InteractionType.both) return false;
-        if (s.friendPlayExperience == ExperienceFilter.pvp && g.friendPlay != InteractionType.pvp && g.friendPlay != InteractionType.both) return false;
-        if (s.friendPlayExperience == ExperienceFilter.both && g.friendPlay != InteractionType.both) return false;
-      }
-
+      if (!_matchesInteraction(g.matchmaking, s.matchmakingFilter, s.matchmakingExperience)) return false;
+      if (!_matchesInteraction(g.friendPlay, s.friendPlayFilter, s.friendPlayExperience)) return false;
       if (s.steamCloudFilter == TriFilter.yes && g.hasSteamCloud != true) return false;
       if (s.steamCloudFilter == TriFilter.no && g.hasSteamCloud == true) return false;
-
       if (s.achievementsFilter == TriFilter.yes && g.hasAchievements != true) return false;
       if (s.achievementsFilter == TriFilter.no && g.hasAchievements == true) return false;
-
       if (s.priceFilter == TriFilter.yes && g.isFree != true) return false;
       if (s.priceFilter == TriFilter.no && g.isFree == true) return false;
-
       if (s.geforceNowFilter == TriFilter.yes && g.isGeforceNow != true) return false;
-      if (s.geforceNowFilter == TriFilter.no) {
-        final isPatched = g.language == GameLanguage.patched;
-        if (g.isGeforceNow == true && !isPatched) return false;
-      }
-
+      if (s.geforceNowFilter == TriFilter.no && g.isGeforceNow == true && g.language != GameLanguage.patched) return false;
       if (!s.visibleLanguages.contains(g.language)) return false;
       if (!s.visibleStatuses.contains(g.status)) return false;
       if (g.sizeInBytes < s.currentMinBytes || g.sizeInBytes > s.currentMaxBytes) return false;
-
       return true;
     }).toList();
 
-    for (var g in filtered) {
-      totalBytes += g.sizeInBytes;
-    }
+    final totalBytes = filtered.fold<double>(0.0, (sum, g) => sum + g.sizeInBytes);
 
     if (s.sortBy == 'name') {
-      filtered.sort((a, b) {
-        final nA = a.name ?? '';
-        final nB = b.name ?? '';
-        return s.sortAsc ? _compareCustom(nA, nB) : _compareCustom(nB, nA);
-      });
-    } else if (s.sortBy == 'hltbMain' || s.sortBy == 'hltbExtras' || s.sortBy == 'hltbComplete') {
+      filtered.sort((a, b) => s.sortAsc
+          ? _compareCustom(a.name ?? '', b.name ?? '')
+          : _compareCustom(b.name ?? '', a.name ?? ''));
+    } else if (s.sortBy case 'hltbMain' || 'hltbExtras' || 'hltbComplete') {
       double? getVal(Game g) {
         final stats = g.hltbStats;
         if (stats == null) return null;
@@ -1346,13 +1224,16 @@ class HomeCubit extends Cubit<HomeState> {
         };
         return v > 0 ? v : null;
       }
+
       filtered.sort((a, b) {
         final aVal = getVal(a);
         final bVal = getVal(b);
-        if (aVal == null && bVal == null) return 0;
-        if (aVal == null) return 1;
-        if (bVal == null) return -1;
-        return s.sortAsc ? aVal.compareTo(bVal) : bVal.compareTo(aVal);
+        return switch ((aVal, bVal)) {
+          (final double a, final double b) => s.sortAsc ? a.compareTo(b) : b.compareTo(a),
+          (null, null) => 0,
+          (null, _)    => 1,
+          (_, null)    => -1,
+        };
       });
     } else {
       filtered.sort((a, b) => s.sortAsc
@@ -1364,15 +1245,15 @@ class HomeCubit extends Cubit<HomeState> {
   }
 
   double _getUnitDivisor(double bytes, bool isBinary) {
-    double gb = isBinary ? 1073741824.0 : 1000000000.0;
-    double mb = isBinary ? 1048576.0 : 1000000.0;
+    final gb = isBinary ? 1073741824.0 : 1000000000.0;
+    final mb = isBinary ? 1048576.0 : 1000000.0;
     return bytes >= gb ? gb : mb;
   }
 
   static String formatBytes(double bytes, bool isBinary) => switch ((isBinary, bytes >= (isBinary ? 1073741824 : 1000000000))) {
-    (true, true) => "${(bytes / 1073741824).toStringAsFixed(2)} GiB",
-    (true, false) => "${(bytes / 1048576).toStringAsFixed(2)} MiB",
-    (false, true) => "${(bytes / 1000000000).toStringAsFixed(2)} GB",
-    (false, false) => "${(bytes / 1000000).toStringAsFixed(2)} MB",
+    (true, true) => '${(bytes / 1073741824).toStringAsFixed(2)} GiB',
+    (true, false) => '${(bytes / 1048576).toStringAsFixed(2)} MiB',
+    (false, true) => '${(bytes / 1000000000).toStringAsFixed(2)} GB',
+    (false, false) => '${(bytes / 1000000).toStringAsFixed(2)} MB',
   };
 }
