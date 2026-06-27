@@ -10,6 +10,7 @@ import 'model.dart';
 enum TriFilter { all, yes, no }
 enum SliderDistribution { discrete, quadratic, cubic }
 enum ExperienceFilter { any, coop, pvp, both }
+typedef StatusEntry = ({GameStatus status, bool visible});
 
 // ─── ESTADO ───
 
@@ -30,10 +31,11 @@ class HomeState({
   // Ordenación
   final String sortBy = 'name',
   final bool sortAsc = true,
+  final bool groupByStatus = false,
+  required final List<StatusEntry> statusFilters,
 
   // Filtros — búsqueda y visibilidad
   final String searchQuery = '',
-  final Set<GameStatus> visibleStatuses = const {},
   final Set<GameLanguage> visibleLanguages = const {},
   final Set<SpType> visibleSpTypes = const {},
   final Set<VrSupport> visibleVrTypes = const {},
@@ -60,6 +62,22 @@ class HomeState({
   bool get isFetchingSteam => steamQueueSize > 0;
   bool get isFetchingHltb => hltbQueueSize > 0;
 
+  /// Comprueba si un estado específico está activo en los filtros actuales.
+  bool isStatusVisible(GameStatus status) {
+    for (final e in statusFilters) {
+      if (e.status == status) return e.visible;
+    }
+    return true;
+  }
+
+  /// Devuelve un set con los estados que el usuario mantiene visibles.
+  Set<GameStatus> get visibleStatuses => {
+    for (final e in statusFilters) if (e.visible) e.status,
+  };
+
+   /// Devuelve la lista de estados con el orden dado por el usuario.
+  List<GameStatus> get statusOrder => [for (final e in statusFilters) e.status];
+
   HomeState copyWith({
     List<Game>? filteredGames,
     int? gameCount,
@@ -71,8 +89,9 @@ class HomeState({
     Map<String, Map<String, dynamic>>? filterProfiles,
     String? sortBy,
     bool? sortAsc,
+    bool? groupByStatus,
+    List<StatusEntry>? statusFilters,
     String? searchQuery,
-    Set<GameStatus>? visibleStatuses,
     Set<GameLanguage>? visibleLanguages,
     Set<SpType>? visibleSpTypes,
     Set<VrSupport>? visibleVrTypes,
@@ -102,8 +121,9 @@ class HomeState({
     filterProfiles: filterProfiles ?? this.filterProfiles,
     sortBy: sortBy ?? this.sortBy,
     sortAsc: sortAsc ?? this.sortAsc,
+    groupByStatus: groupByStatus ?? this.groupByStatus,
+    statusFilters: statusFilters ?? this.statusFilters,
     searchQuery: searchQuery ?? this.searchQuery,
-    visibleStatuses: visibleStatuses ?? this.visibleStatuses,
     visibleLanguages: visibleLanguages ?? this.visibleLanguages,
     visibleSpTypes: visibleSpTypes ?? this.visibleSpTypes,
     visibleVrTypes: visibleVrTypes ?? this.visibleVrTypes,
@@ -138,8 +158,9 @@ class HomeState({
         mapEquals(other.filterProfiles, filterProfiles) &&
         other.sortBy == sortBy &&
         other.sortAsc == sortAsc &&
+        other.groupByStatus == groupByStatus &&
+        listEquals(other.statusFilters, statusFilters) &&
         other.searchQuery == searchQuery &&
-        setEquals(other.visibleStatuses, visibleStatuses) &&
         setEquals(other.visibleLanguages, visibleLanguages) &&
         setEquals(other.visibleSpTypes, visibleSpTypes) &&
         setEquals(other.visibleVrTypes, visibleVrTypes) &&
@@ -172,8 +193,9 @@ class HomeState({
     filterProfiles.length,
     sortBy,
     sortAsc,
+    groupByStatus,
+    ...statusFilters.map((e) => Object.hash(e.status, e.visible)),
     searchQuery,
-    visibleStatuses,
     visibleLanguages,
     visibleSpTypes,
     visibleVrTypes,
@@ -222,8 +244,13 @@ class HomeCubit extends Cubit<HomeState> {
   // Se invalida (null) en limpiezas completas o importaciones con reemplazo total.
   ({double min, double max})? _sizeCache;
 
+  //Configuración inicial: todos los statuses visibles en el orden del enum.
+  static final List<StatusEntry> _defaultStatusFilters = [
+    for (final s in GameStatus.values) (status: s, visible: true),
+  ];
+
   HomeCubit() : super(HomeState(
-    visibleStatuses: GameStatus.values.toSet(),
+    statusFilters: _defaultStatusFilters,
     visibleLanguages: GameLanguage.values.toSet(),
     visibleSpTypes: SpType.values.toSet(),
     visibleVrTypes: VrSupport.values.toSet(),
@@ -272,6 +299,32 @@ class HomeCubit extends Cubit<HomeState> {
     return set.isEmpty ? null : set;
   }
 
+  /// Parsea statusFilters desde JSON.
+  /// Garantiza que todos los valores del enum estén presentes:
+  /// los que falten en el JSON se añaden al final con visible=true.
+  List<StatusEntry>? _parseStatusFilters(dynamic raw) {
+    if (raw is List && raw.isNotEmpty) {
+      final parsed = <StatusEntry>[];
+      for (final e in raw) {
+        if (e case {'status': final String name, 'visible': final bool vis}) {
+          if (GameStatus.values.byNameOrNull(name) case final s?) {
+            parsed.add((status: s, visible: vis));
+          }
+        }
+      }
+      if (parsed.isNotEmpty) {
+        final seen = {for (final e in parsed) e.status};
+        return [
+          ...parsed,
+          // Statuses añadidos al enum después del guardado quedan visibles al final
+          for (final s in GameStatus.values)
+            if (!seen.contains(s)) (status: s, visible: true),
+        ];
+      }
+    }
+    return null;
+  }
+
   Map<String, Map<String, dynamic>> _parseFilterProfiles(dynamic data) {
     if (data is! Map) return {};
     return Map.fromEntries(
@@ -283,7 +336,6 @@ class HomeCubit extends Cubit<HomeState> {
 
   Map<String, dynamic> _extractFilters(HomeState s) => {
     'visibleLanguages': s.visibleLanguages.map((e) => e.name).toList(),
-    'visibleStatuses': s.visibleStatuses.map((e) => e.name).toList(),
     'visibleSpTypes': s.visibleSpTypes.map((e) => e.name).toList(),
     'visibleVrTypes': s.visibleVrTypes.map((e) => e.name).toList(),
     'includeSoftware': s.includeSoftware,
@@ -299,6 +351,10 @@ class HomeCubit extends Cubit<HomeState> {
     'sliderDistribution': s.sliderDistribution.name,
     'sortBy': s.sortBy,
     'sortAsc': s.sortAsc,
+    'groupByStatus': s.groupByStatus,
+    'statusFilters': s.statusFilters
+        .map((e) => {'status': e.status.name, 'visible': e.visible})
+        .toList(),
     'currentMinBytes': s.currentMinBytes,
     'currentMaxBytes': s.currentMaxBytes,
     'filterProfiles': s.filterProfiles,
@@ -308,7 +364,6 @@ class HomeCubit extends Cubit<HomeState> {
   HomeState _restoreFilters(HomeState current, Map<String, dynamic> profile) => current.copyWith(
       searchQuery: profile['searchQuery'] as String? ?? current.searchQuery,
       visibleLanguages: _parseEnumSet(GameLanguage.values, profile['visibleLanguages']) ?? current.visibleLanguages,
-      visibleStatuses: _parseEnumSet(GameStatus.values, profile['visibleStatuses']) ?? current.visibleStatuses,
       visibleSpTypes: _parseEnumSet(SpType.values, profile['visibleSpTypes']) ?? current.visibleSpTypes,
       visibleVrTypes: _parseEnumSet(VrSupport.values, profile['visibleVrTypes']) ?? current.visibleVrTypes,
       includeSoftware: profile['includeSoftware'] as bool? ?? current.includeSoftware,
@@ -324,6 +379,8 @@ class HomeCubit extends Cubit<HomeState> {
       sliderDistribution: SliderDistribution.values.byNameOrNull(profile['sliderDistribution'] as String?) ?? current.sliderDistribution,
       sortBy: profile['sortBy'] as String? ?? current.sortBy,
       sortAsc: profile['sortAsc'] as bool? ?? current.sortAsc,
+      groupByStatus: profile['groupByStatus'] as bool? ?? current.groupByStatus,
+      statusFilters: _parseStatusFilters(profile['statusFilters']) ?? current.statusFilters,
       currentMinBytes: (profile['currentMinBytes'] as num?)?.toDouble() ?? current.currentMinBytes,
       currentMaxBytes: (profile['currentMaxBytes'] as num?)?.toDouble() ?? current.currentMaxBytes,
     );
@@ -373,7 +430,6 @@ class HomeCubit extends Cubit<HomeState> {
         if (decoded case {'settings': Map<String, dynamic> settings}) {
           newState = state.copyWith(
             visibleLanguages: _parseEnumSet(GameLanguage.values, settings['visibleLanguages']),
-            visibleStatuses: _parseEnumSet(GameStatus.values, settings['visibleStatuses']),
             visibleSpTypes: _parseEnumSet(SpType.values, settings['visibleSpTypes']),
             visibleVrTypes: _parseEnumSet(VrSupport.values, settings['visibleVrTypes']),
             includeSoftware: settings['includeSoftware'] as bool?,
@@ -389,6 +445,8 @@ class HomeCubit extends Cubit<HomeState> {
             sliderDistribution: SliderDistribution.values.byNameOrNull(settings['sliderDistribution'] as String?),
             sortBy: settings['sortBy'] as String?,
             sortAsc: settings['sortAsc'] as bool?,
+            groupByStatus: settings['groupByStatus'] as bool?,
+            statusFilters: _parseStatusFilters(settings['statusFilters']),
             esDePath: settings['esDePath'] as String?,
             currentMinBytes: (settings['currentMinBytes'] as num?)?.toDouble(),
             currentMaxBytes: (settings['currentMaxBytes'] as num?)?.toDouble(),
@@ -1014,8 +1072,9 @@ class HomeCubit extends Cubit<HomeState> {
     bool? binary,
     String? sort,
     bool? asc,
+    bool? groupByStatus,
+    List<StatusEntry>? statusFilters,
     String? searchQuery,
-    Set<GameStatus>? visibleStatuses,
     Set<GameLanguage>? visibleLanguages,
     Set<SpType>? visibleSpTypes,
     Set<VrSupport>? visibleVrTypes,
@@ -1035,8 +1094,9 @@ class HomeCubit extends Cubit<HomeState> {
       binaryFormat: binary,
       sortBy: sort,
       sortAsc: asc,
+      groupByStatus: groupByStatus,
+      statusFilters: statusFilters,
       searchQuery: searchQuery,
-      visibleStatuses: visibleStatuses,
       visibleLanguages: visibleLanguages,
       visibleSpTypes: visibleSpTypes,
       visibleVrTypes: visibleVrTypes,
@@ -1058,9 +1118,16 @@ class HomeCubit extends Cubit<HomeState> {
   }
 
   void toggleStatusFilter(GameStatus status, bool isEnabled) {
-    final newStatuses = Set<GameStatus>.from(state.visibleStatuses);
-    isEnabled ? newStatuses.add(status) : newStatuses.remove(status);
-    updateFlag(visibleStatuses: newStatuses);
+    updateFlag(statusFilters: [
+      for (final e in state.statusFilters)
+        (status: e.status, visible: e.status == status ? isEnabled : e.visible),
+    ]);
+  }
+
+  void reorderStatus(int oldIndex, int newIndex) {
+    final config = List<StatusEntry>.from(state.statusFilters);
+    config.insert(newIndex, config.removeAt(oldIndex));
+    updateFlag(statusFilters: config);
   }
 
   void toggleLanguageFilter(GameLanguage language, bool isEnabled) {
@@ -1112,11 +1179,11 @@ class HomeCubit extends Cubit<HomeState> {
   // ─── MOTOR DE FILTRADO Y ORDENACIÓN ───
 
   /// Calcula los límites absolutos del slider de tamaño según todos los juegos en memoria.
-  /// 
+  ///
   /// Estrategia de caché (`_sizeCache`):
   ///   · Inicialmente null → Escaneo O(N) obligatorio para poblarla.
   ///   · Válida → Operación O(1) que calcula los redondeos de unidad (MB/GiB...).
-  /// 
+  ///
   /// Si el rango seleccionado por el usuario está en su valor inicial (0-1), se expande
   /// a los nuevos límites; si ya fue ajustado, se preserva adaptándolo al nuevo rango.
   HomeState _updateLimits(HomeState s) {
@@ -1186,7 +1253,7 @@ class HomeCubit extends Cubit<HomeState> {
   }
 
   HomeState _applyFilters(HomeState s) {
-    final filtered = _gamesById.values.where((g) {
+    var filtered = _gamesById.values.where((g) {
       if (!_matchSearchTitle(g.name ?? '', s.searchQuery)) return false;
       if (!s.includeSoftware && g.isSoftware == true) return false;
       if (g.spType != null && !s.visibleSpTypes.contains(g.spType)) return false;
@@ -1209,8 +1276,31 @@ class HomeCubit extends Cubit<HomeState> {
 
     final totalBytes = filtered.fold<double>(0.0, (sum, g) => sum + g.sizeInBytes);
 
+    if (s.groupByStatus) {
+      final orderedVisible = [
+        for (final (:status, :visible) in s.statusFilters)
+          if (visible) status,
+      ];
+      final grouped = <GameStatus, List<Game>>{
+        for (final st in orderedVisible) st: [],
+      };
+      for (final g in filtered) {
+        grouped[g.status]?.add(g);
+      }
+      for (final group in grouped.values) {
+        _sortGames(group, s);
+      }
+      filtered = [for (final st in orderedVisible) ...grouped[st]!];
+    } else {
+      _sortGames(filtered, s);
+    }
+
+    return s.copyWith(filteredGames: filtered, totalBytes: totalBytes, gameCount: _gamesById.length);
+  }
+
+  void _sortGames(List<Game> list, HomeState s) {
     if (s.sortBy == 'name') {
-      filtered.sort((a, b) => s.sortAsc
+      list.sort((a, b) => s.sortAsc
           ? _compareCustom(a.name ?? '', b.name ?? '')
           : _compareCustom(b.name ?? '', a.name ?? ''));
     } else if (s.sortBy case 'hltbMain' || 'hltbExtras' || 'hltbComplete') {
@@ -1224,8 +1314,7 @@ class HomeCubit extends Cubit<HomeState> {
         };
         return v > 0 ? v : null;
       }
-
-      filtered.sort((a, b) {
+      list.sort((a, b) {
         final aVal = getVal(a);
         final bVal = getVal(b);
         return switch ((aVal, bVal)) {
@@ -1236,12 +1325,10 @@ class HomeCubit extends Cubit<HomeState> {
         };
       });
     } else {
-      filtered.sort((a, b) => s.sortAsc
+      list.sort((a, b) => s.sortAsc
           ? a.sizeInBytes.compareTo(b.sizeInBytes)
           : b.sizeInBytes.compareTo(a.sizeInBytes));
     }
-
-    return s.copyWith(filteredGames: filtered, totalBytes: totalBytes, gameCount: _gamesById.length);
   }
 
   double _getUnitDivisor(double bytes, bool isBinary) {
