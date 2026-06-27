@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
-import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -1447,6 +1447,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
                       label: const Text('Todos'),
                       selected: state.friendPlayFilter == TriFilter.all,
                       showCheckmark: false,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       onSelected: (v) {
                         if (v) context.read<HomeCubit>().updateFlag(friendPlayFilter: TriFilter.all);
                       },
@@ -1455,6 +1456,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
                       label: const Text('Con Salas/Local'),
                       selected: state.friendPlayFilter == TriFilter.yes,
                       showCheckmark: false,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       onSelected: (v) {
                         if (v) context.read<HomeCubit>().updateFlag(friendPlayFilter: TriFilter.yes);
                       },
@@ -1463,6 +1465,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
                       label: const Text('Sin Salas/Local'),
                       selected: state.friendPlayFilter == TriFilter.no,
                       showCheckmark: false,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       onSelected: (v) {
                         if (v) context.read<HomeCubit>().updateFlag(friendPlayFilter: TriFilter.no);
                       },
@@ -1478,6 +1481,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
                         label: Text(_expName(exp)),
                         selected: state.friendPlayExperience == exp,
                         showCheckmark: false,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         onSelected: (v) {
                           if (v) context.read<HomeCubit>().updateFlag(friendPlayExperience: exp);
                         },
@@ -1497,6 +1501,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
                       label: const Text('Todos'),
                       selected: state.matchmakingFilter == TriFilter.all,
                       showCheckmark: false,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       onSelected: (v) {
                         if (v) context.read<HomeCubit>().updateFlag(matchmakingFilter: TriFilter.all);
                       },
@@ -1505,6 +1510,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
                       label: const Text('Con Matchmaking'),
                       selected: state.matchmakingFilter == TriFilter.yes,
                       showCheckmark: false,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       onSelected: (v) {
                         if (v) context.read<HomeCubit>().updateFlag(matchmakingFilter: TriFilter.yes);
                       },
@@ -1513,6 +1519,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
                       label: const Text('Sin Matchmaking'),
                       selected: state.matchmakingFilter == TriFilter.no,
                       showCheckmark: false,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       onSelected: (v) {
                         if (v) context.read<HomeCubit>().updateFlag(matchmakingFilter: TriFilter.no);
                       },
@@ -1528,6 +1535,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
                         label: Text(_expName(exp)),
                         selected: state.matchmakingExperience == exp,
                         showCheckmark: false,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         onSelected: (v) {
                           if (v) context.read<HomeCubit>().updateFlag(matchmakingExperience: exp);
                         },
@@ -1547,6 +1555,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
                       label: const Text('Todos'),
                       selected: state.achievementsFilter == TriFilter.all,
                       showCheckmark: false,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       onSelected: (v) {
                         if (v) context.read<HomeCubit>().updateFlag(achievementsFilter: TriFilter.all);
                       },
@@ -1555,6 +1564,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
                       label: const Text('Con Logros'),
                       selected: state.achievementsFilter == TriFilter.yes,
                       showCheckmark: false,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       onSelected: (v) {
                         if (v) context.read<HomeCubit>().updateFlag(achievementsFilter: TriFilter.yes);
                       },
@@ -1563,6 +1573,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
                       label: const Text('Sin Logros'),
                       selected: state.achievementsFilter == TriFilter.no,
                       showCheckmark: false,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       onSelected: (v) {
                         if (v) context.read<HomeCubit>().updateFlag(achievementsFilter: TriFilter.no);
                       },
@@ -1582,6 +1593,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
                       label: const Text('Todos'),
                       selected: state.steamCloudFilter == TriFilter.all,
                       showCheckmark: false,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       onSelected: (v) {
                         if (v) context.read<HomeCubit>().updateFlag(steamCloudFilter: TriFilter.all);
                       },
@@ -1590,6 +1602,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
                       label: const Text('Soporta Cloud'),
                       selected: state.steamCloudFilter == TriFilter.yes,
                       showCheckmark: false,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       onSelected: (v) {
                         if (v) context.read<HomeCubit>().updateFlag(steamCloudFilter: TriFilter.yes);
                       },
@@ -1598,6 +1611,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
                       label: const Text('Sin Cloud'),
                       selected: state.steamCloudFilter == TriFilter.no,
                       showCheckmark: false,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       onSelected: (v) {
                         if (v) context.read<HomeCubit>().updateFlag(steamCloudFilter: TriFilter.no);
                       },
@@ -1617,6 +1631,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
                       label: const Text('Todos'),
                       selected: state.priceFilter == TriFilter.all,
                       showCheckmark: false,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       onSelected: (v) {
                         if (v) context.read<HomeCubit>().updateFlag(priceFilter: TriFilter.all);
                       },
@@ -1625,6 +1640,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
                       label: const Text('Gratuitos'),
                       selected: state.priceFilter == TriFilter.yes,
                       showCheckmark: false,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       onSelected: (v) {
                         if (v) context.read<HomeCubit>().updateFlag(priceFilter: TriFilter.yes);
                       },
@@ -1633,6 +1649,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
                       label: const Text('De Pago'),
                       selected: state.priceFilter == TriFilter.no,
                       showCheckmark: false,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       onSelected: (v) {
                         if (v) context.read<HomeCubit>().updateFlag(priceFilter: TriFilter.no);
                       },
@@ -1652,6 +1669,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
                       label: const Text('Todos'),
                       selected: state.geforceNowFilter == TriFilter.all,
                       showCheckmark: false,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       onSelected: (v) {
                         if (v) context.read<HomeCubit>().updateFlag(geforceNowFilter: TriFilter.all);
                       },
@@ -1660,6 +1678,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
                       label: const Text('En GFN'),
                       selected: state.geforceNowFilter == TriFilter.yes,
                       showCheckmark: false,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       onSelected: (v) {
                         if (v) context.read<HomeCubit>().updateFlag(geforceNowFilter: TriFilter.yes);
                       },
@@ -1668,6 +1687,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
                       label: const Text('No en GFN'),
                       selected: state.geforceNowFilter == TriFilter.no,
                       showCheckmark: false,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       onSelected: (v) {
                         if (v) context.read<HomeCubit>().updateFlag(geforceNowFilter: TriFilter.no);
                       },
@@ -1705,6 +1725,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
                     label: Text(_distName(dist)),
                     selected: state.sliderDistribution == dist,
                     showCheckmark: false,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     onSelected: (v) {
                       if (v) context.read<HomeCubit>().updateFlag(sliderDistribution: dist);
                     },
@@ -1713,11 +1734,34 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
               ),
             ),
 
-            _buildGroup(
-              'Estatus',
-              Wrap(
-                spacing: 6, runSpacing: 6,
-                children: GameStatus.values.map((s) => _StatusFilterChip(status: s)).toList(),
+            BlocBuilder<HomeCubit, HomeState>(
+              buildWhen: (p, c) => p.groupByStatus != c.groupByStatus || !identical(p.statusFilters, c.statusFilters),
+              builder: (ctx, state) => Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                spacing: 6,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Text('Estatus', style: Theme.of(ctx).textTheme.titleMedium),
+                      const Spacer(),
+                      FilterChip(
+                        label: const Text('Agrupar'),
+                        selected: state.groupByStatus,
+                        showCheckmark: false,
+                        visualDensity: const VisualDensity(horizontal: 0, vertical: -4),
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        avatar: Icon(
+                          state.groupByStatus ? Icons.layers : Icons.layers_outlined,
+                          size: 18,
+                        ),
+                        onSelected: (v) => ctx.read<HomeCubit>().updateFlag(groupByStatus: v),
+                      ),
+                    ],
+                  ),
+                  _StatusChipGrid(config: state.statusFilters),
+                ],
               ),
             ),
             const SizedBox(height: 12),
@@ -1739,6 +1783,7 @@ class _SpTypeFilterChip extends StatelessWidget {
       showCheckmark: false,
       label: Text(_spTypeName(spType)),
       selected: isSelected,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
       onSelected: (val) => context.read<HomeCubit>().toggleSpTypeFilter(spType, val),
     );
   }
@@ -1755,6 +1800,7 @@ class _VrFilterChip extends StatelessWidget {
       showCheckmark: false,
       label: Text(_vrName(vrSupport)),
       selected: isSelected,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
       onSelected: (val) => context.read<HomeCubit>().toggleVrFilter(vrSupport, val),
     );
   }
@@ -1774,6 +1820,7 @@ class _BooleanFilterChip extends StatelessWidget {
       showCheckmark: false,
       label: Text(label),
       selected: isSelected,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
       onSelected: onToggled,
     );
   }
@@ -1790,7 +1837,128 @@ class _LanguageFilterChip extends StatelessWidget {
       showCheckmark: false,
       label: Text(_langName(language)),
       selected: isSelected,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
       onSelected: (val) => context.read<HomeCubit>().toggleLanguageFilter(language, val),
+    );
+  }
+}
+
+class _StatusChipGrid extends StatefulWidget {
+  const _StatusChipGrid({required this.config});
+  final List<StatusEntry> config;
+
+  @override
+  State<_StatusChipGrid> createState() => _StatusChipGridState();
+}
+
+class _StatusChipGridState extends State<_StatusChipGrid> {
+  late List<StatusEntry> _preview;
+  GameStatus? _dragging;
+
+  @override
+  void initState() {
+    super.initState();
+    _preview = List.of(widget.config);
+  }
+
+  @override
+  void didUpdateWidget(_StatusChipGrid old) {
+    super.didUpdateWidget(old);
+    if (_dragging == null && !listEquals(widget.config, old.config)) {
+      _preview = List.of(widget.config);
+    }
+  }
+
+  void _moveTo(GameStatus from, GameStatus to) {
+    final fi = _preview.indexWhere((e) => e.status == from);
+    final ti = _preview.indexWhere((e) => e.status == to);
+    if (fi < 0 || ti < 0 || fi == ti) return;
+    setState(() {
+      final item = _preview.removeAt(fi);
+      _preview.insert(ti, item);
+    });
+  }
+
+  void _commit() {
+    if (_dragging == null) return;
+    context.read<HomeCubit>().updateFlag(statusFilters: List.of(_preview));
+    setState(() => _dragging = null);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: [
+        for (final entry in _preview)
+          _DraggableStatusChip(
+            key: ValueKey(entry.status),
+            status: entry.status,
+            currentlyDragging: _dragging,
+            onDragStarted: () => setState(() => _dragging = entry.status),
+            onHover: (from) => _moveTo(from, entry.status),
+            onDrop: _commit,
+          ),
+      ],
+    );
+  }
+}
+
+// ── Chip arrastrable individual ─────────────────────────────────────────────
+
+class _DraggableStatusChip extends StatelessWidget {
+  const _DraggableStatusChip({
+    required super.key,
+    required this.status,
+    required this.currentlyDragging,
+    required this.onDragStarted,
+    required this.onHover,
+    required this.onDrop,
+  });
+
+  final GameStatus status;
+  final GameStatus? currentlyDragging;
+  final VoidCallback onDragStarted;
+  final ValueChanged<GameStatus> onHover;
+  final VoidCallback onDrop;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final isThisDragging = currentlyDragging == status;
+    final chip = _StatusFilterChip(status: status);
+    final feedback = Material(
+      type: MaterialType.transparency,
+      elevation: 4,
+      shadowColor: cs.shadow,
+      child: _StatusFilterChip(status: status),
+    );
+
+    return DragTarget<GameStatus>(
+      onWillAcceptWithDetails: (d) {
+        if (d.data != currentlyDragging || d.data == status) return false;
+        onHover(d.data);
+        return true;
+      },
+      onAcceptWithDetails: (_) {},
+      builder: (ctx, candidates, _) {
+        final isTarget = candidates.isNotEmpty && !isThisDragging;
+        return AnimatedScale(
+          scale: isTarget ? 1.06 : 1.0,
+          duration: const Duration(milliseconds: 100),
+          curve: Curves.easeOutCubic,
+          child: LongPressDraggable<GameStatus>(
+            data: status,
+            delay: const Duration(milliseconds: 250),
+            feedback: feedback,
+            childWhenDragging: Opacity(opacity: 0.35, child: chip),
+            onDragStarted: onDragStarted,
+            onDragEnd: (_) => onDrop(),
+            child: chip,
+          ),
+        );
+      },
     );
   }
 }
@@ -1801,13 +1969,33 @@ class _StatusFilterChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isSelected = context.select((HomeCubit c) => c.state.visibleStatuses.contains(status));
+    final cs = Theme.of(context).colorScheme;
+    final cubit = context.read<HomeCubit>();
+    final isSelected = context.select<HomeCubit, bool>(
+      (c) => c.state.isStatusVisible(status),
+    );
+    final color = _statusColor(status, Theme.of(context).brightness == Brightness.dark);
+
     return FilterChip(
-      showCheckmark: false,
-      label: Text(_statusName(status)),
-      selectedColor: _statusColor(status, Theme.of(context).brightness == Brightness.dark).withValues(alpha: 0.4),
+      label: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(_statusName(status)),
+          const SizedBox(width: 3),
+          Icon(
+            Icons.drag_indicator,
+            size: 16,
+            color: cs.onSurface.withValues(alpha: 0.45),
+          ),
+        ],
+      ),
       selected: isSelected,
-      onSelected: (val) => context.read<HomeCubit>().toggleStatusFilter(status, val),
+      showCheckmark: false,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      onSelected: (val) => cubit.toggleStatusFilter(status, val),
+      backgroundColor: color.withValues(alpha: 0.25),
+      selectedColor: color.withValues(alpha: 0.55),
+      // side: BorderSide.none,
     );
   }
 }
