@@ -46,7 +46,7 @@ class Game({
   final String? userNote,
   final bool hasFetchedSteam = false,
   final bool hasFetchedGfn = false,
-  final bool hasFetchedHltb = false,
+  final int? hltbFetchedAt,
   final HltbStats? hltbStats,
 }) {
   this : assert(
@@ -79,6 +79,17 @@ class Game({
     return hasSpanish == true ? GameLanguage.spanish : GameLanguage.english;
   }
 
+  /// Indica si los datos de HLTB deben (re)consultarse. Un juego nunca obtenido
+  /// (hltbFetchedAt == null) siempre se consulta la primera vez. Un [intervalDays]
+  /// <= 0 desactiva la RE-consulta periódica (auto-actualización OFF); en caso
+  /// contrario, se refresca cuando la última consulta supera el intervalo.
+  bool needsHltbRefresh(int intervalDays) {
+    if (hltbFetchedAt == null) return true; // siempre obtener la primera vez
+    if (intervalDays <= 0) return false; // 0 = re-consulta desactivada
+    final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    return (nowSec - hltbFetchedAt!) > intervalDays * 86400;
+  }
+
   factory fromJson(Map<String, dynamic> json) {
     final size = (json['size'] ?? 0).toDouble() as double;
     final unit = (json['unit'] ?? 'mb').toString().toLowerCase();
@@ -99,9 +110,6 @@ class Game({
       } => true,
       _ => false,
     };
-
-    final fetchedHltb = (json['has_fetched_hltb'] as bool?) ??
-        (json['id_steam'] == null || json['hltb_stats'] != null);
 
     return Game(
       idSteam: json['id_steam'] as int?,
@@ -124,7 +132,7 @@ class Game({
       userNote: json['user_note'] as String?,
       hasFetchedSteam: fetchedSteam,
       hasFetchedGfn: (json['has_fetched_gfn'] as bool?) ?? false,
-      hasFetchedHltb: fetchedHltb,
+      hltbFetchedAt: json['hltb_fetched_at'] as int?,
       hltbStats: json['hltb_stats'] != null ? HltbStats.fromJson(json['hltb_stats'] as Map<String, dynamic>) : null,
     );
   }
@@ -149,7 +157,7 @@ class Game({
     if (userNote != null) 'user_note': userNote,
     'has_fetched_steam': hasFetchedSteam,
     'has_fetched_gfn': hasFetchedGfn,
-    'has_fetched_hltb': hasFetchedHltb,
+    if (hltbFetchedAt != null) 'hltb_fetched_at': hltbFetchedAt,
     if (hltbStats != null) 'hltb_stats': hltbStats!.toJson(),
   };
 
@@ -188,7 +196,7 @@ class Game({
       userNote: pick('user_note', userNote),
       hasFetchedSteam: pick('has_fetched_steam', hasFetchedSteam),
       hasFetchedGfn: pick('has_fetched_gfn', hasFetchedGfn),
-      hasFetchedHltb: pick('has_fetched_hltb', hasFetchedHltb),
+      hltbFetchedAt: pick('hltb_fetched_at', hltbFetchedAt),
       hltbStats: json.containsKey('hltb_stats') && json['hltb_stats'] != null ? HltbStats.fromJson(json['hltb_stats'] as Map<String, dynamic>) : hltbStats,
     );
   }
@@ -214,7 +222,7 @@ class Game({
     String? userNote,
     bool? hasFetchedSteam,
     bool? hasFetchedGfn,
-    bool? hasFetchedHltb,
+    int? hltbFetchedAt,
     HltbStats? hltbStats,
   }) => Game(
     idSteam: idSteam ?? this.idSteam,
@@ -237,7 +245,7 @@ class Game({
     userNote: userNote ?? this.userNote,
     hasFetchedSteam: hasFetchedSteam ?? this.hasFetchedSteam,
     hasFetchedGfn: hasFetchedGfn ?? this.hasFetchedGfn,
-    hasFetchedHltb: hasFetchedHltb ?? this.hasFetchedHltb,
+    hltbFetchedAt: hltbFetchedAt ?? this.hltbFetchedAt,
     hltbStats: hltbStats ?? this.hltbStats,
   );
 
