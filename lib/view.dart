@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -55,11 +56,10 @@ String _interactionName(InteractionType i) => switch (i) { InteractionType.none 
 String _expName(ExperienceFilter e) => switch (e) { ExperienceFilter.any => 'Cualquiera', ExperienceFilter.coop => 'Solo Cooperativo', ExperienceFilter.pvp => 'Solo Competitivo', ExperienceFilter.both => 'Ambos' };
 String _vrName(VrSupport v) => switch (v) { VrSupport.no => 'Sin VR', VrSupport.yes => 'VR opcional', VrSupport.only => 'Solo VR', VrSupport.mod => 'Mod VR' };
 
-String _formatHours(double? hours) {
-  if (hours == null || hours <= 0) return '--';
-  final m = (hours * 60).round();
-  final hh = m ~/ 60;
-  final mm = m % 60;
+String _formatDuration(int? minutes) {
+  if (minutes == null || minutes <= 0) return '--';
+  final hh = minutes ~/ 60;
+  final mm = minutes % 60;
   return switch ((hh, mm)) {
     (0, _) => '${mm}m',
     (_, 0) => '${hh}h',
@@ -80,6 +80,83 @@ String? _getEsDeMediaPath(String? basePath, String folder, String? gameName) {
   return null;
 }
 
+/// Formatea un recuento de juegos con la unidad singular/plural correcta.
+String _games(int n) => n == 1 ? '1 juego' : '$n juegos';
+
+/// Resumen para el SnackBar de éxito tras aplicar un [ImportPlan].
+String _importSummary(ImportPlan plan) {
+  if (plan.replace) {
+    return 'Biblioteca reemplazada: ${_games(plan.incoming)} importados.';
+  }
+  final parts = <String>[];
+  if (plan.added > 0) parts.add('${_games(plan.added)} añadidos');
+  if (plan.merged > 0) {
+    parts.add(plan.preserveExisting
+        ? '${_games(plan.merged)} actualizados'
+        : '${_games(plan.merged)} sobrescritos');
+  }
+  return parts.isEmpty
+      ? 'No había nada que importar.'
+      : 'Importación completada: ${parts.join(' y ')}.';
+}
+
+/// Diálogo de confirmación (destructivo) que se muestra SOLO cuando la importación borra o
+/// sobrescribe datos. Presenta las cifras exactas ya calculadas en el [ImportPlan] y devuelve
+/// true si el usuario confirma. Se apila sobre el diálogo de importación: «Cancelar» regresa
+/// a él con el contenido intacto.
+Future<bool?> _confirmImport(BuildContext context, ImportPlan plan) {
+  final scheme = Theme.of(context).colorScheme;
+  final String message;
+  if (plan.replace) {
+    message = 'Se eliminarán tus ${_games(plan.deleted)} actuales y se reemplazarán por '
+        '${_games(plan.incoming)} del archivo. Esta acción no se puede deshacer.';
+  } else {
+    // merge sin preservar, con coincidencias: se reinician las propiedades ausentes.
+    final added = plan.added > 0 ? ' Se añadirán ${_games(plan.added)} nuevos.' : '';
+    message = 'De los ${_games(plan.incoming)} del archivo, ${_games(plan.merged)} ya existen y '
+        'se sobrescribirán por completo: las propiedades que no vengan en el JSON se reiniciarán '
+        'a sus valores por defecto.$added Esta acción no se puede deshacer.';
+  }
+  return showDialog<bool>(
+    context: context,
+    builder: (dctx) => AlertDialog(
+      icon: Icon(Icons.warning_amber_rounded, color: scheme.error),
+      title: const Text('Confirmar importación'),
+      content: Text(message),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(dctx, false), child: const Text('Cancelar')),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: scheme.error,
+            foregroundColor: scheme.onError,
+          ),
+          onPressed: () => Navigator.pop(dctx, true),
+          child: Text(plan.replace ? 'Reemplazar' : 'Sobrescribir'),
+        ),
+      ],
+    ),
+  );
+}
+
+/// Abre el detalle de un juego. Dispara la auto-consulta de HLTB (efecto único de
+/// "al abrir") aquí, en el sitio de llamada, en lugar de en el initState de un
+/// StatefulWidget: el diálogo queda como StatelessWidget puro y no arrastra estado extra.
+void _openGameDialog(BuildContext context, Game game) {
+  final cubit = context.read<HomeCubit>();
+  // Auto-consulta de HLTB al abrir el detalle, si el ajuste está activo y los
+  // datos nunca se obtuvieron o superaron el intervalo de refresco configurado.
+  if (cubit.state.hltbAutoRefreshOnDetail) {
+    final current = cubit.gameById(game.internalId) ?? game;
+    if (current.idSteam != null && current.needsHltbRefresh(cubit.state.refreshIntervalDays)) {
+      cubit.refetchHltbForGame(current);
+    }
+  }
+  showDialog(
+    context: context,
+    builder: (ctx) => _GameDialog(gameId: game.internalId, initialGame: game),
+  );
+}
+
 // ==========================================
 // WIDGET PRINCIPAL
 // ==========================================
@@ -88,6 +165,7 @@ class HomeView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isLoading = context.select((HomeCubit c) => c.state.isLoading);
     final hasGames = context.select((HomeCubit c) => c.state.gameCount > 0);
 
     return Scaffold(
@@ -107,21 +185,13 @@ class HomeView extends StatelessWidget {
                 );
                 return;
               }
-              showDialog(
-                context: context,
-                builder: (ctx) {
-                  final g = games[_random.nextInt(games.length)];
-                  return _GameDialog(gameId: g.internalId, initialGame: g);
-                },
-              );
+              _openGameDialog(context, games[_random.nextInt(games.length)]);
             },
           ),
           PopupMenuButton<String>(
             onSelected: (value) async {
               if (value == 'import') {
-                _showJsonDialog(context, isUpdate: false);
-              } else if (value == 'update') {
-                _showJsonDialog(context, isUpdate: true);
+                _showJsonDialog(context);
               } else if (value == 'export') {
                 _exportJson(context);
               } else if (value == 'clear') {
@@ -153,7 +223,6 @@ class HomeView extends StatelessWidget {
             },
             itemBuilder: (context) => const [
               PopupMenuItem(value: 'import', child: Text('Importar biblioteca')),
-              PopupMenuItem(value: 'update', child: Text('Actualizar biblioteca')),
               PopupMenuItem(value: 'export', child: Text('Exportar biblioteca')),
               PopupMenuItem(value: 'clear', child: Text('Vaciar biblioteca')),
               PopupMenuDivider(),
@@ -179,7 +248,9 @@ class HomeView extends StatelessWidget {
               ],
             ),
           ),
-          if (!hasGames)
+          if (isLoading)
+            const Expanded(child: Center(child: CircularProgressIndicator(strokeWidth: 12)))
+          else if (!hasGames)
             const Expanded(
               child: Center(child: Text('No hay datos. Importa un JSON para comenzar.')),
             )
@@ -214,16 +285,19 @@ class HomeView extends StatelessWidget {
     }
   }
 
-  void _showJsonDialog(BuildContext context, {required bool isUpdate}) {
+  void _showJsonDialog(BuildContext context) {
     final TextEditingController jsonCtrl = TextEditingController();
     String? selectedFileName;
+    bool replace = false; // por defecto: añadir/actualizar (no reemplazar toda la biblioteca)
+    bool preserveExisting = true; // por defecto: en fusiones, conservar las propiedades ausentes del JSON
 
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setState) {
+          final scheme = Theme.of(context).colorScheme;
           return AlertDialog(
-            title: Text(isUpdate ? 'Actualizar JSON' : 'Importar JSON'),
+            title: const Text('Importar biblioteca'),
             content: SizedBox(
               width: double.maxFinite,
               child: SingleChildScrollView(
@@ -232,15 +306,12 @@ class HomeView extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   spacing: 12.0,
                   children: [
-                    Text(isUpdate
-                        ? 'Se actualizarán los juegos existentes y se añadirán los nuevos.'
-                        : 'Se eliminarán los datos actuales y se reemplazarán.'),
                     OutlinedButton(
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.all(12),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                        backgroundColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.05),
-                        side: BorderSide(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5)),
+                        backgroundColor: scheme.primary.withValues(alpha: 0.05),
+                        side: BorderSide(color: scheme.primary.withValues(alpha: 0.5)),
                       ),
                       onPressed: () async {
                         try {
@@ -268,14 +339,14 @@ class HomeView extends StatelessWidget {
                       child: Row(
                         spacing: 12,
                         children: [
-                          Icon(Icons.folder_open, color: Theme.of(context).colorScheme.primary, size: 24),
+                          Icon(Icons.folder_open, color: scheme.primary, size: 24),
                           Expanded(
                             child: Text(
                               selectedFileName ?? 'Tocar para elegir archivo...',
                               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                                 color: selectedFileName == null
                                   ? Theme.of(context).textTheme.bodyMedium?.color
-                                  : Theme.of(context).colorScheme.primary,
+                                  : scheme.primary,
                                 fontWeight: selectedFileName == null ? FontWeight.normal : FontWeight.bold,
                               ),
                               maxLines: 1,
@@ -291,27 +362,112 @@ class HomeView extends StatelessWidget {
                       decoration: InputDecoration(
                         hintText: 'Pega el JSON aquí o selecciónalo desde el botón superior...',
                         contentPadding: const EdgeInsets.all(12),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(6))
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
                       ),
                     ),
+                    // Eje 1: reemplazar TODA la biblioteca (borra los juegos que no vengan en el import).
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text('Reemplazar biblioteca'),
+                      subtitle: Text(replace
+                          ? 'Se borrarán todos los juegos antes de importar.'
+                          : 'Actualmente se añaden los nuevos y se actualizan los existentes.'),
+                      value: replace,
+                      onChanged: (v) => setState(() => replace = v),
+                    ),
+                    // Eje 2 (encadenado): en fusiones, qué hacer con las propiedades que el JSON omite
+                    // de un juego que YA existe. Si «Reemplazar» está activo no hay nada que conservar
+                    // (se borra todo), así que este control se deshabilita y se fuerza visualmente a OFF.
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text('Conservar propiedades existentes'),
+                      subtitle: Text(replace
+                          ? 'No aplica al reemplazar: se descarta todo lo anterior.'
+                          : (preserveExisting
+                              ? 'Solo se actualizan las propiedades presentes en el JSON; el resto se mantiene.'
+                              : 'Las propiedades ausentes del JSON se reinician a sus valores por defecto.')),
+                      value: !replace && preserveExisting,
+                      onChanged: replace ? null : (v) => setState(() => preserveExisting = v),
+                    ),
+                    // Alerta encadenada: al activar «Reemplazar» avisamos de que se pierde lo ya definido.
+                    if (replace)
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: scheme.errorContainer,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Row(
+                          spacing: 12,
+                          children: [
+                            Icon(Icons.warning_amber_rounded, color: scheme.onErrorContainer),
+                            Expanded(
+                              child: Text(
+                                'No se van a conservar las propiedades que ya tenías definidas de los juegos.',
+                                style: TextStyle(color: scheme.onErrorContainer),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                   ],
                 ),
               ),
             ),
             actions: [
               TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
-              ElevatedButton(
-                onPressed: () {
-                  if (jsonCtrl.text.isNotEmpty) {
-                    context.read<HomeCubit>().processJson(jsonCtrl.text, replace: !isUpdate);
-                  }
-                  Navigator.pop(ctx);
+              ValueListenableBuilder<TextEditingValue>(
+                valueListenable: jsonCtrl,
+                builder: (c, value, _) {
+                  final enabled = value.text.trim().isNotEmpty;
+                  return ElevatedButton(
+                    style: replace
+                        ? ElevatedButton.styleFrom(
+                            backgroundColor: scheme.error,
+                            foregroundColor: scheme.onError,
+                          )
+                        : null,
+                    onPressed: enabled
+                        ? () async {
+                            final messenger = ScaffoldMessenger.of(context);
+                            final cubit = context.read<HomeCubit>();
+                            final analysis = cubit.analyzeImport(
+                              jsonCtrl.text,
+                              replace: replace,
+                              preserveExisting: preserveExisting,
+                            );
+                            switch (analysis) {
+                              case InvalidImport():
+                                messenger.showSnackBar(const SnackBar(
+                                  content: Text('El texto no es un JSON de biblioteca válido.'),
+                                ));
+                              case EmptyImport():
+                                messenger.showSnackBar(const SnackBar(
+                                  content: Text('El JSON no contiene juegos con id_steam o nombre válidos.'),
+                                ));
+                              case ReadyImport(:final plan):
+                                // Pedimos confirmación extra si la operación destruye datos.
+                                if (plan.isDestructive) {
+                                  final confirmed = await _confirmImport(ctx, plan);
+                                  if (confirmed != true) return; // cancelar: regresa al diálogo intacto
+                                }
+                                await cubit.applyImport(plan);
+                                if (ctx.mounted) Navigator.pop(ctx);
+                                messenger.showSnackBar(
+                                  SnackBar(content: Text(_importSummary(plan))),
+                                );
+                            }
+                          }
+                        : null,
+                    child: Text(replace ? 'Reemplazar' : 'Importar'),
+                  );
                 },
-                child: Text(isUpdate ? 'Actualizar' : 'Importar'),
               ),
             ],
           );
-        }
+        },
       ),
     );
   }
@@ -360,6 +516,40 @@ class _SummaryText extends StatelessWidget {
   }
 }
 
+class _SyncIndicator extends StatelessWidget {
+  const _SyncIndicator();
+
+  @override
+  Widget build(BuildContext context) {
+    final isFetching = context.select((HomeCubit c) => c.state.isFetchingSteam);
+    final isFetchingGfn = context.select((HomeCubit c) => c.state.isFetchingGfnDb);
+    final isFetchingHltb = context.select((HomeCubit c) => c.state.isFetchingHltb);
+    final pendingCount = context.select((HomeCubit c) => c.state.steamQueueSize);
+    final pendingHltbCount = context.select((HomeCubit c) => c.state.hltbQueueSize);
+
+    return IconButton(
+      tooltip: [
+        'Sincronizando:',
+        if (isFetchingGfn) '• GeForce NOW: descargando catálogo',
+        if (isFetching) '• Steam: $pendingCount pendientes',
+        if (isFetchingHltb) '• HLTB: $pendingHltbCount pendientes',
+      ].join('\n'),
+      onPressed: () {},
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints.tightFor(width: 30, height: 30),
+      style: IconButton.styleFrom(
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      icon: CircularProgressIndicator(
+        strokeWidth: 2,
+        color: Theme.of(context).colorScheme.primary,
+        padding: EdgeInsets.zero,
+        strokeAlign: CircularProgressIndicator.strokeAlignInside,
+      ),
+    );
+  }
+}
+
 class _CompactControls extends StatelessWidget {
   const _CompactControls();
 
@@ -368,11 +558,8 @@ class _CompactControls extends StatelessWidget {
     final hasGames = context.select((HomeCubit c) => c.state.gameCount > 0);
     final sortBy = context.select((HomeCubit c) => c.state.sortBy);
     final sortAsc = context.select((HomeCubit c) => c.state.sortAsc);
-    final isFetching = context.select((HomeCubit c) => c.state.isFetchingSteam);
-    final isFetchingGfn = context.select((HomeCubit c) => c.state.isFetchingGfnDb);
-    final isFetchingHltb = context.select((HomeCubit c) => c.state.isFetchingHltb);
-    final pendingCount = context.select((HomeCubit c) => c.state.steamQueueSize);
-    final pendingHltbCount = context.select((HomeCubit c) => c.state.hltbQueueSize);
+    final isSyncing = context.select((HomeCubit c) =>
+        c.state.isFetchingSteam || c.state.isFetchingGfnDb || c.state.isFetchingHltb);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -397,27 +584,7 @@ class _CompactControls extends StatelessWidget {
                   ),
                 ),
               ),
-              if (isFetching || isFetchingGfn || isFetchingHltb)
-                IconButton(
-                  tooltip: [
-                    'Sincronizando:',
-                    if (isFetchingGfn) '• GeForce NOW: descargando catálogo',
-                    if (isFetching) '• Steam: $pendingCount pendientes',
-                    if (isFetchingHltb) '• HLTB: $pendingHltbCount pendientes',
-                  ].join('\n'),
-                  onPressed: () {},
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints.tightFor(width: 30, height: 30),
-                  style: IconButton.styleFrom(
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  icon: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Theme.of(context).colorScheme.primary,
-                    padding: EdgeInsets.zero,
-                    strokeAlign: CircularProgressIndicator.strokeAlignInside,
-                  ),
-                ),
+              if (isSyncing) const _SyncIndicator(),
 
               if (hasGames && !useTwoRows)
                 const Expanded(
@@ -575,7 +742,7 @@ class _GamesList extends StatelessWidget {
                 text: emojiTags.join(' '),
                 style: const TextStyle(letterSpacing: 2.0),
               ));
-              
+
               if (textTags.isNotEmpty) {
                 spans.add(TextSpan(
                   text: '  •  ',
@@ -587,7 +754,7 @@ class _GamesList extends StatelessWidget {
             // 2. Textos (Estatus + otros) intercalados con viñetas atenuadas
             for (int i = 0; i < textTags.length; i++) {
               spans.add(TextSpan(text: textTags[i]));
-              
+
               if (i < textTags.length - 1) {
                 spans.add(TextSpan(
                   text: '  •  ',
@@ -599,10 +766,7 @@ class _GamesList extends StatelessWidget {
             return ListTile(
               shape: _roundedShape,
               tileColor: _statusColor(status, Theme.of(context).brightness == Brightness.dark),
-              onLongPress: () => showDialog(
-                context: context,
-                builder: (ctx) => _GameDialog(gameId: game.internalId, initialGame: game),
-              ),
+              onLongPress: () => _openGameDialog(context, game),
               contentPadding: const EdgeInsets.symmetric(horizontal: 12),
               leading: PopupMenuButton<GameStatus>(
                 tooltip: 'Cambiar estatus',
@@ -995,35 +1159,35 @@ class _GameDialogHltb extends StatelessWidget {
                   ),
                   if (!mainStory.isEmpty) TableRow(children: [
                     td('Historia', isLabel: true),
-                    // td(_formatHours(mainStory.classic)),
-                    td(_formatHours(mainStory.average)),
-                    td(_formatHours(mainStory.median)),
-                    td(_formatHours(mainStory.rushed)),
-                    td(_formatHours(mainStory.leisure), trailing: true),
+                    // td(_formatDuration(mainStory.classic)),
+                    td(_formatDuration(mainStory.average)),
+                    td(_formatDuration(mainStory.median)),
+                    td(_formatDuration(mainStory.rushed)),
+                    td(_formatDuration(mainStory.leisure), trailing: true),
                   ]),
                   if (!extras.isEmpty) TableRow(children: [
                     td('+ Extras', isLabel: true),
-                    // td(_formatHours(extras.classic)),
-                    td(_formatHours(extras.average)),
-                    td(_formatHours(extras.median)),
-                    td(_formatHours(extras.rushed)),
-                    td(_formatHours(extras.leisure), trailing: true),
+                    // td(_formatDuration(extras.classic)),
+                    td(_formatDuration(extras.average)),
+                    td(_formatDuration(extras.median)),
+                    td(_formatDuration(extras.rushed)),
+                    td(_formatDuration(extras.leisure), trailing: true),
                   ]),
                   if (!completionist.isEmpty) TableRow(children: [
                     td('Platinado', isLabel: true),
-                    // td(_formatHours(completionist.classic)),
-                    td(_formatHours(completionist.average)),
-                    td(_formatHours(completionist.median)),
-                    td(_formatHours(completionist.rushed)),
-                    td(_formatHours(completionist.leisure), trailing: true),
+                    // td(_formatDuration(completionist.classic)),
+                    td(_formatDuration(completionist.average)),
+                    td(_formatDuration(completionist.median)),
+                    td(_formatDuration(completionist.rushed)),
+                    td(_formatDuration(completionist.leisure), trailing: true),
                   ]),
                   if (!allPlayStyles.isEmpty) TableRow(children: [
                     td('Todos los estilos', isLabel: true),
-                    // td(_formatHours(allPlayStyles.classic)),
-                    td(_formatHours(allPlayStyles.average)),
-                    td(_formatHours(allPlayStyles.median)),
-                    td(_formatHours(allPlayStyles.rushed)),
-                    td(_formatHours(allPlayStyles.leisure), trailing: true),
+                    // td(_formatDuration(allPlayStyles.classic)),
+                    td(_formatDuration(allPlayStyles.average)),
+                    td(_formatDuration(allPlayStyles.median)),
+                    td(_formatDuration(allPlayStyles.rushed)),
+                    td(_formatDuration(allPlayStyles.leisure), trailing: true),
                   ]),
                 ],
               ),
@@ -1271,8 +1435,535 @@ class _UserNoteFieldState extends State<_UserNoteField> {
 }
 
 // ==========================================
+// PIEZAS REUTILIZABLES DE LA HOJA DE FILTROS
+// ==========================================
+
+Wrap _triFilterWrap({
+  required TriFilter value,
+  required String yesLabel,
+  required String noLabel,
+  required ValueChanged<TriFilter> onSelected,
+}) {
+  Widget chip(String label, TriFilter option) => ChoiceChip(
+        label: Text(label),
+        selected: value == option,
+        showCheckmark: false,
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        onSelected: (v) { if (v) onSelected(option); },
+      );
+  return Wrap(
+    spacing: 6, runSpacing: 6,
+    children: [
+      chip('Todos', TriFilter.all),
+      chip(yesLabel, TriFilter.yes),
+      chip(noLabel, TriFilter.no),
+    ],
+  );
+}
+
+/// Grupo de 3 chips (Todos / Sí / No) que observa un único TriFilter del estado.
+class _TriFilterChips extends StatelessWidget {
+  final String yesLabel;
+  final String noLabel;
+  final TriFilter Function(HomeState) selector;
+  final ValueChanged<TriFilter> onSelected;
+  const _TriFilterChips({
+    required this.yesLabel,
+    required this.noLabel,
+    required this.selector,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final value = context.select<HomeCubit, TriFilter>((c) => selector(c.state));
+    return _triFilterWrap(value: value, yesLabel: yesLabel, noLabel: noLabel, onSelected: onSelected);
+  }
+}
+
+/// Grupo de interacción (Salas/Local, Matchmaking): filtro tri-estado + fila de
+/// experiencia condicional. Un único select combinado hace que se reconstruya solo
+/// cuando cambia su propio filtro o su experiencia.
+class _InteractionFilterGroup extends StatelessWidget {
+  final String title;
+  final String yesLabel;
+  final String noLabel;
+  final TriFilter Function(HomeState) selectFilter;
+  final ExperienceFilter Function(HomeState) selectExperience;
+  final ValueChanged<TriFilter> onFilterChanged;
+  final ValueChanged<ExperienceFilter> onExperienceChanged;
+
+  const _InteractionFilterGroup({
+    required this.title,
+    required this.yesLabel,
+    required this.noLabel,
+    required this.selectFilter,
+    required this.selectExperience,
+    required this.onFilterChanged,
+    required this.onExperienceChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final (filter, experience) = context.select<HomeCubit, (TriFilter, ExperienceFilter)>(
+      (c) => (selectFilter(c.state), selectExperience(c.state)),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      spacing: 6,
+      children: [
+        Text(title, style: Theme.of(context).textTheme.titleMedium),
+        _triFilterWrap(value: filter, yesLabel: yesLabel, noLabel: noLabel, onSelected: onFilterChanged),
+        if (filter != TriFilter.no)
+          Wrap(
+            spacing: 6, runSpacing: 6,
+            children: [
+              for (final exp in ExperienceFilter.values)
+                ChoiceChip(
+                  label: Text(_expName(exp)),
+                  selected: experience == exp,
+                  showCheckmark: false,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  onSelected: (v) { if (v) onExperienceChanged(exp); },
+                ),
+            ],
+          ),
+      ],
+    );
+  }
+}
+
+/// Chips de distribución del slider, observando solo sliderDistribution.
+class _SliderDistributionChips extends StatelessWidget {
+  const _SliderDistributionChips();
+
+  @override
+  Widget build(BuildContext context) {
+    final current = context.select((HomeCubit c) => c.state.sliderDistribution);
+    return Wrap(
+      spacing: 6, runSpacing: 6,
+      children: [
+        for (final dist in SliderDistribution.values)
+          ChoiceChip(
+            label: Text(_distName(dist)),
+            selected: current == dist,
+            showCheckmark: false,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            onSelected: (v) { if (v) context.read<HomeCubit>().updateFlag(sliderDistribution: dist); },
+          ),
+      ],
+    );
+  }
+}
+
+/// Campo de búsqueda. El ValueListenableBuilder sobre el controller aísla el
+/// rebuild: teclear solo actualiza este campo (y su botón de limpiar), no toda la hoja.
+class _SearchField extends StatelessWidget {
+  final TextEditingController controller;
+  const _SearchField({required this.controller});
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: controller,
+      builder: (context, value, _) {
+        return TextField(
+          controller: controller,
+          decoration: InputDecoration(
+            hintText: 'Buscar título...',
+            prefixIcon: const Icon(Icons.search),
+            isDense: true,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+            suffixIcon: value.text.isNotEmpty
+                ? IconButton(
+                    icon: const Icon(Icons.clear),
+                    onPressed: () {
+                      controller.clear();
+                      context.read<HomeCubit>().updateFlag(searchQuery: '');
+                    },
+                  )
+                : null,
+          ),
+          onChanged: (val) => context.read<HomeCubit>().updateFlag(searchQuery: val),
+        );
+      },
+    );
+  }
+}
+
+/// Gestor de perfiles de filtro. Mantiene el nombre en edición como estado local,
+/// de modo que teclearlo solo reconstruye este bloque, no la hoja entera.
+class _ProfileManager extends StatefulWidget {
+  final TextEditingController searchController;
+  const _ProfileManager({required this.searchController});
+
+  @override
+  State<_ProfileManager> createState() => _ProfileManagerState();
+}
+
+class _ProfileManagerState extends State<_ProfileManager> {
+  String _profileName = '';
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      spacing: 6,
+      children: [
+        Text('Perfil de filtros', style: Theme.of(context).textTheme.titleMedium),
+        BlocBuilder<HomeCubit, HomeState>(
+          buildWhen: (p, c) => p.filterProfiles != c.filterProfiles,
+          builder: (ctx, state) {
+            final profiles = state.filterProfiles;
+            final profileExists = profiles.containsKey(_profileName.trim());
+            return Row(
+              spacing: 6,
+              children: [
+                Expanded(
+                  child: Autocomplete<String>(
+                    optionsBuilder: (TextEditingValue value) {
+                      if (value.text.isEmpty) return profiles.keys;
+                      return profiles.keys.where(
+                        (k) => k.toLowerCase().contains(value.text.toLowerCase()),
+                      );
+                    },
+                    onSelected: (String selection) {
+                      setState(() => _profileName = selection);
+                    },
+                    fieldViewBuilder: (ctx2, ctrl, focus, onSubmit) {
+                      return TextField(
+                        controller: ctrl,
+                        focusNode: focus,
+                        onChanged: (v) => setState(() => _profileName = v),
+                        decoration: InputDecoration(
+                          labelText: 'Nombre del perfil',
+                          isDense: true,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.save),
+                  tooltip: 'Guardar perfil',
+                  onPressed: _profileName.trim().isNotEmpty
+                      ? () => context.read<HomeCubit>().saveFilterProfile(_profileName)
+                      : null,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.download),
+                  tooltip: 'Cargar perfil',
+                  onPressed: profileExists
+                      ? () {
+                          context.read<HomeCubit>().loadFilterProfile(_profileName.trim());
+                          widget.searchController.text = context.read<HomeCubit>().state.searchQuery;
+                        }
+                      : null,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline),
+                  tooltip: 'Eliminar perfil',
+                  onPressed: profileExists
+                      ? () {
+                          context.read<HomeCubit>().deleteFilterProfile(_profileName.trim());
+                          setState(() => _profileName = '');
+                        }
+                      : null,
+                ),
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+// ==========================================
 // BOTTOM SHEET DE FILTROS
 // ==========================================
+
+class _HltbRefreshControls extends StatelessWidget {
+  const _HltbRefreshControls();
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 12,
+      runSpacing: 6,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        const _HltbIntervalStepper(),
+        _BooleanFilterChip(
+          label: 'Consultar al abrir detalle',
+          selector: (c) => c.state.hltbAutoRefreshOnDetail,
+          onToggled: (val) => context.read<HomeCubit>().updateFlag(hltbAutoRefreshOnDetail: val),
+        ),
+      ],
+    );
+  }
+}
+
+/// Selector del intervalo de refresco de HLTB (en días) en una sola línea:
+/// un valor numérico editable al centro con flechas −/+ para ajustarlo, acotado
+/// a [_min, _max]. Escribir permite saltar a cualquier entero sin ir de uno en
+/// uno. Se suscribe solo a refreshIntervalDays (BlocConsumer con buildWhen)
+class _HltbIntervalStepper extends StatefulWidget {
+  const _HltbIntervalStepper();
+
+  @override
+  State<_HltbIntervalStepper> createState() => _HltbIntervalStepperState();
+}
+
+class _HoldRepeatButton extends StatefulWidget {
+  final Widget icon;
+  final ValueChanged<int> onStep; // magnitud del paso: 1, 2, 5 o 10
+  final String tooltip;
+  const _HoldRepeatButton({
+    required this.icon,
+    required this.onStep,
+    required this.tooltip,
+  });
+
+  @override
+  State<_HoldRepeatButton> createState() => _HoldRepeatButtonState();
+}
+
+class _HoldRepeatButtonState extends State<_HoldRepeatButton> {
+  Timer? _delay;
+  Timer? _repeat;
+  int _ticks = 0;
+
+  static int _stepForTicks(int t) {
+    if (t < 6) return 1; // ~0.5 s de 1 en 1
+    if (t < 12) return 2; // luego de 2 en 2
+    if (t < 20) return 5; // luego de 5 en 5
+    return 10; // y finalmente de 10 en 10
+  }
+
+  void _start() {
+    _stop();
+    _ticks = 0;
+    widget.onStep(1); // primer paso inmediato (también cubre el toque simple)
+    _delay = Timer(const Duration(milliseconds: 350), () {
+      _repeat = Timer.periodic(const Duration(milliseconds: 90), (_) {
+        _ticks++;
+        widget.onStep(_stepForTicks(_ticks));
+      });
+    });
+  }
+
+  void _stop() {
+    _delay?.cancel();
+    _delay = null;
+    _repeat?.cancel();
+    _repeat = null;
+  }
+
+  @override
+  void dispose() {
+    _stop();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: (_) => _start(),
+      onTapUp: (_) => _stop(),
+      onTapCancel: _stop,
+      child: Tooltip(
+        message: widget.tooltip,
+        child: SizedBox(
+          width: 38,
+          height: 38,
+          child: Center(child: widget.icon),
+        ),
+      ),
+    );
+  }
+}
+
+class _MaxValueFormatter extends TextInputFormatter {
+  final int max;
+  const _MaxValueFormatter(this.max);
+
+  @override
+  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+    if (newValue.text.isEmpty) return newValue; // permitir borrar del todo
+    final value = int.tryParse(newValue.text);
+    if (value == null || value > max) return oldValue; // rechazar
+    return newValue;
+  }
+}
+
+class _HltbIntervalStepperState extends State<_HltbIntervalStepper> {
+  static const int _min = 0;   // 0 = desactivado
+  static const int _max = 365; // máximo solicitado
+
+  late final HomeCubit _cubit; // guardado para poder volcar en dispose sin usar context
+  late final TextEditingController _ctrl;
+  late final FocusNode _focus;
+  Timer? _commitDebounce;
+  late int _days;
+
+  @override
+  void initState() {
+    super.initState();
+    _cubit = context.read<HomeCubit>();
+    _days = _cubit.state.refreshIntervalDays.clamp(_min, _max);
+    _ctrl = TextEditingController(text: '$_days');
+    _focus = FocusNode()..addListener(_onFocusChange);
+  }
+
+  @override
+  void dispose() {
+    _commitDebounce?.cancel();
+    _commitNow(); // vuelca cualquier cambio pendiente antes de irse
+    _focus.removeListener(_onFocusChange);
+    _focus.dispose();
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  // Ciclo modular sobre [_min, _max] para cualquier delta (positivo o negativo).
+  int _cycle(int v, int delta) {
+    const range = _max - _min + 1;
+    final shifted = (v - _min + delta) % range;
+    return _min + (shifted + range) % range;
+  }
+
+  void _setDays(int value, {bool syncField = true}) {
+    if (!mounted) return;
+    setState(() => _days = value);
+    if (syncField) {
+      final text = '$value';
+      if (_ctrl.text != text) _ctrl.text = text;
+    }
+    _scheduleCommit();
+  }
+
+  void _bump(int delta) => _setDays(_cycle(_days, delta));
+
+  void _onFocusChange() {
+    if (!_focus.hasFocus) {
+      // Al perder foco (incluye tocar fuera vía TapRegion) reconciliamos el
+      // texto (vacío/parcial → último válido) y confirmamos de inmediato.
+      final parsed = int.tryParse(_ctrl.text.trim());
+      _setDays((parsed ?? _days).clamp(_min, _max));
+      _commitNow();
+    }
+  }
+
+  void _scheduleCommit() {
+    _commitDebounce?.cancel();
+    _commitDebounce = Timer(const Duration(milliseconds: 400), _commitNow);
+  }
+
+  void _commitNow() {
+    _commitDebounce?.cancel();
+    if (_cubit.state.refreshIntervalDays != _days) {
+      _cubit.updateFlag(refreshIntervalDays: _days);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final numberStyle = Theme.of(context).textTheme.labelLarge?.copyWith(
+      color: cs.onSurfaceVariant,
+    );
+
+    // Ancho fijo para 3 dígitos (el máximo es 366), medido con el estilo real.
+    final painter = TextPainter(
+      text: TextSpan(text: '000', style: numberStyle),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+    )..layout();
+    final fieldWidth = painter.width + 10;
+
+    final baseBorder = OutlineInputBorder(
+      gapPadding: 0,
+      borderRadius: const BorderRadius.all(Radius.circular(8)),
+      borderSide: BorderSide(color: cs.outlineVariant), 
+    );
+
+    return TapRegion(
+      onTapOutside: (_) {
+        if (_focus.hasFocus) _focus.unfocus();
+      },
+      child: IntrinsicWidth(
+        child: InputDecorator(
+          decoration: InputDecoration(
+            label: const Padding(
+              padding: EdgeInsetsDirectional.symmetric(horizontal: 4),
+              child: Text('Refrescar cada'),
+            ),
+            filled: true,
+            fillColor: cs.surface,
+            floatingLabelStyle: TextStyle(color: cs.onSurfaceVariant),
+            isDense: true,
+            labelStyle: TextStyle(color: cs.primary),
+            contentPadding: EdgeInsets.zero,
+            border: baseBorder,
+            enabledBorder: baseBorder,
+            focusedBorder: baseBorder,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              _HoldRepeatButton(
+                tooltip: 'Menos días',
+                icon: Icon(Icons.remove, size: 18, color: cs.onSurfaceVariant),
+                onStep: (magnitude) => _bump(-magnitude),
+              ),
+              SizedBox(
+                width: fieldWidth,
+                child: TextField(
+                  controller: _ctrl,
+                  focusNode: _focus,
+                  textAlign: TextAlign.center,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    _MaxValueFormatter(_max),
+                  ],
+                  decoration: const InputDecoration(
+                    border: InputBorder.none,
+                    isCollapsed: true,
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                  style: numberStyle,
+                  onChanged: (text) {
+                    final v = int.tryParse(text);
+                    // No reescribimos el campo mientras escribe (syncField: false).
+                    if (v != null) _setDays(v.clamp(_min, _max), syncField: false);
+                  },
+                  onSubmitted: (_) => _focus.unfocus(),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(right: 2),
+                child: Text(_days == 1 ? 'día' : 'días', style: numberStyle),
+              ),
+              _HoldRepeatButton(
+                tooltip: 'Más días',
+                icon: Icon(Icons.add, size: 18, color: cs.onSurfaceVariant),
+                onStep: (magnitude) => _bump(magnitude),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _FilterBottomSheet extends StatefulWidget {
   const _FilterBottomSheet();
 
@@ -1282,14 +1973,12 @@ class _FilterBottomSheet extends StatefulWidget {
 
 class _FilterBottomSheetState extends State<_FilterBottomSheet> {
   late TextEditingController _searchCtrl;
-  String _profileName = '';
 
   @override
   void initState() {
     super.initState();
     final currentQuery = context.read<HomeCubit>().state.searchQuery;
     _searchCtrl = TextEditingController(text: currentQuery);
-    _searchCtrl.addListener(() => setState(() {}));
   }
 
   @override
@@ -1313,6 +2002,8 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
 
   @override
   Widget build(BuildContext context) {
+    // Nota: este build ya no se suscribe a estado volátil ni hace setState al teclear,
+    // por lo que se ejecuta una vez al abrir. Cada grupo hijo gestiona su propio rebuild.
     return Padding(
       padding: EdgeInsets.only(
         left: 18.0, right: 18.0, top: 18.0,
@@ -1324,93 +2015,11 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
           crossAxisAlignment: CrossAxisAlignment.start,
           spacing: 18,
           children: [
-            _buildGroup(
-              'Perfil de filtros',
-              BlocBuilder<HomeCubit, HomeState>(
-                buildWhen: (p, c) => p.filterProfiles != c.filterProfiles,
-                builder: (ctx, state) {
-                  final profiles = state.filterProfiles;
-                  final profileExists = profiles.containsKey(_profileName.trim());
-                  return Row(
-                    spacing: 6,
-                    children: [
-                      Expanded(
-                        child: Autocomplete<String>(
-                          optionsBuilder: (TextEditingValue value) {
-                            if (value.text.isEmpty) return profiles.keys;
-                            return profiles.keys.where(
-                              (k) => k.toLowerCase().contains(value.text.toLowerCase()),
-                            );
-                          },
-                          onSelected: (String selection) {
-                            setState(() => _profileName = selection);
-                          },
-                          fieldViewBuilder: (ctx2, ctrl, focus, onSubmit) {
-                            return TextField(
-                              controller: ctrl,
-                              focusNode: focus,
-                              onChanged: (v) => setState(() => _profileName = v),
-                              decoration: InputDecoration(
-                                labelText: 'Nombre del perfil',
-                                isDense: true,
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.save),
-                        tooltip: 'Guardar perfil',
-                        onPressed: _profileName.trim().isNotEmpty
-                            ? () => context.read<HomeCubit>().saveFilterProfile(_profileName)
-                            : null,
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.download),
-                        tooltip: 'Cargar perfil',
-                        onPressed: profileExists
-                            ? () {
-                                context.read<HomeCubit>().loadFilterProfile(_profileName.trim());
-                                _searchCtrl.text = context.read<HomeCubit>().state.searchQuery;
-                              }
-                            : null,
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.delete_outline),
-                        tooltip: 'Eliminar perfil',
-                        onPressed: profileExists
-                            ? () {
-                                context.read<HomeCubit>().deleteFilterProfile(_profileName.trim());
-                                setState(() => _profileName = '');
-                              }
-                            : null,
-                      ),
-                    ],
-                  );
-                },
-              ),
-            ),
+            _ProfileManager(searchController: _searchCtrl),
 
             _buildGroup(
               'Búsqueda',
-              TextField(
-                controller: _searchCtrl,
-                decoration: InputDecoration(
-                  hintText: 'Buscar título...',
-                  prefixIcon: const Icon(Icons.search),
-                  isDense: true,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
-                  suffixIcon: _searchCtrl.text.isNotEmpty ? IconButton(
-                    icon: const Icon(Icons.clear),
-                    onPressed: () {
-                      _searchCtrl.clear();
-                      context.read<HomeCubit>().updateFlag(searchQuery: '');
-                    },
-                  ) : null,
-                ),
-                onChanged: (val) => context.read<HomeCubit>().updateFlag(searchQuery: val),
-              ),
+              _SearchField(controller: _searchCtrl),
             ),
 
             _buildGroup(
@@ -1437,263 +2046,63 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
               ),
             ),
 
-            _buildGroup(
-              'Salas / Local',
-              BlocBuilder<HomeCubit, HomeState>(
-                builder: (ctx, state) => Wrap(
-                  spacing: 6, runSpacing: 6,
-                  children: [
-                    ChoiceChip(
-                      label: const Text('Todos'),
-                      selected: state.friendPlayFilter == TriFilter.all,
-                      showCheckmark: false,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      onSelected: (v) {
-                        if (v) context.read<HomeCubit>().updateFlag(friendPlayFilter: TriFilter.all);
-                      },
-                    ),
-                    ChoiceChip(
-                      label: const Text('Con Salas/Local'),
-                      selected: state.friendPlayFilter == TriFilter.yes,
-                      showCheckmark: false,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      onSelected: (v) {
-                        if (v) context.read<HomeCubit>().updateFlag(friendPlayFilter: TriFilter.yes);
-                      },
-                    ),
-                    ChoiceChip(
-                      label: const Text('Sin Salas/Local'),
-                      selected: state.friendPlayFilter == TriFilter.no,
-                      showCheckmark: false,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      onSelected: (v) {
-                        if (v) context.read<HomeCubit>().updateFlag(friendPlayFilter: TriFilter.no);
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              context.select((HomeCubit c) => c.state.friendPlayFilter) != TriFilter.no
-                ? BlocBuilder<HomeCubit, HomeState>(
-                    builder: (ctx, state) => Wrap(
-                      spacing: 6, runSpacing: 6,
-                      children: ExperienceFilter.values.map((exp) => ChoiceChip(
-                        label: Text(_expName(exp)),
-                        selected: state.friendPlayExperience == exp,
-                        showCheckmark: false,
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        onSelected: (v) {
-                          if (v) context.read<HomeCubit>().updateFlag(friendPlayExperience: exp);
-                        },
-                      )).toList(),
-                    ),
-                  )
-                : null,
+            _InteractionFilterGroup(
+              title: 'Salas / Local',
+              yesLabel: 'Con Salas/Local',
+              noLabel: 'Sin Salas/Local',
+              selectFilter: (s) => s.friendPlayFilter,
+              selectExperience: (s) => s.friendPlayExperience,
+              onFilterChanged: (t) => context.read<HomeCubit>().updateFlag(friendPlayFilter: t),
+              onExperienceChanged: (e) => context.read<HomeCubit>().updateFlag(friendPlayExperience: e),
             ),
 
-            _buildGroup(
-              'Matchmaking',
-              BlocBuilder<HomeCubit, HomeState>(
-                builder: (ctx, state) => Wrap(
-                  spacing: 6, runSpacing: 6,
-                  children: [
-                    ChoiceChip(
-                      label: const Text('Todos'),
-                      selected: state.matchmakingFilter == TriFilter.all,
-                      showCheckmark: false,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      onSelected: (v) {
-                        if (v) context.read<HomeCubit>().updateFlag(matchmakingFilter: TriFilter.all);
-                      },
-                    ),
-                    ChoiceChip(
-                      label: const Text('Con Matchmaking'),
-                      selected: state.matchmakingFilter == TriFilter.yes,
-                      showCheckmark: false,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      onSelected: (v) {
-                        if (v) context.read<HomeCubit>().updateFlag(matchmakingFilter: TriFilter.yes);
-                      },
-                    ),
-                    ChoiceChip(
-                      label: const Text('Sin Matchmaking'),
-                      selected: state.matchmakingFilter == TriFilter.no,
-                      showCheckmark: false,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      onSelected: (v) {
-                        if (v) context.read<HomeCubit>().updateFlag(matchmakingFilter: TriFilter.no);
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              context.select((HomeCubit c) => c.state.matchmakingFilter) != TriFilter.no
-                ? BlocBuilder<HomeCubit, HomeState>(
-                    builder: (ctx, state) => Wrap(
-                      spacing: 6, runSpacing: 6,
-                      children: ExperienceFilter.values.map((exp) => ChoiceChip(
-                        label: Text(_expName(exp)),
-                        selected: state.matchmakingExperience == exp,
-                        showCheckmark: false,
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        onSelected: (v) {
-                          if (v) context.read<HomeCubit>().updateFlag(matchmakingExperience: exp);
-                        },
-                      )).toList(),
-                    ),
-                  )
-                : null,
+            _InteractionFilterGroup(
+              title: 'Matchmaking',
+              yesLabel: 'Con Matchmaking',
+              noLabel: 'Sin Matchmaking',
+              selectFilter: (s) => s.matchmakingFilter,
+              selectExperience: (s) => s.matchmakingExperience,
+              onFilterChanged: (t) => context.read<HomeCubit>().updateFlag(matchmakingFilter: t),
+              onExperienceChanged: (e) => context.read<HomeCubit>().updateFlag(matchmakingExperience: e),
             ),
 
             _buildGroup(
               'Logros de Steam',
-              BlocBuilder<HomeCubit, HomeState>(
-                builder: (ctx, state) => Wrap(
-                  spacing: 6, runSpacing: 6,
-                  children: [
-                    ChoiceChip(
-                      label: const Text('Todos'),
-                      selected: state.achievementsFilter == TriFilter.all,
-                      showCheckmark: false,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      onSelected: (v) {
-                        if (v) context.read<HomeCubit>().updateFlag(achievementsFilter: TriFilter.all);
-                      },
-                    ),
-                    ChoiceChip(
-                      label: const Text('Con Logros'),
-                      selected: state.achievementsFilter == TriFilter.yes,
-                      showCheckmark: false,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      onSelected: (v) {
-                        if (v) context.read<HomeCubit>().updateFlag(achievementsFilter: TriFilter.yes);
-                      },
-                    ),
-                    ChoiceChip(
-                      label: const Text('Sin Logros'),
-                      selected: state.achievementsFilter == TriFilter.no,
-                      showCheckmark: false,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      onSelected: (v) {
-                        if (v) context.read<HomeCubit>().updateFlag(achievementsFilter: TriFilter.no);
-                      },
-                    ),
-                  ],
-                ),
+              _TriFilterChips(
+                yesLabel: 'Con Logros',
+                noLabel: 'Sin Logros',
+                selector: (s) => s.achievementsFilter,
+                onSelected: (t) => context.read<HomeCubit>().updateFlag(achievementsFilter: t),
               ),
             ),
 
             _buildGroup(
               'Steam Cloud',
-              BlocBuilder<HomeCubit, HomeState>(
-                builder: (ctx, state) => Wrap(
-                  spacing: 6, runSpacing: 6,
-                  children: [
-                    ChoiceChip(
-                      label: const Text('Todos'),
-                      selected: state.steamCloudFilter == TriFilter.all,
-                      showCheckmark: false,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      onSelected: (v) {
-                        if (v) context.read<HomeCubit>().updateFlag(steamCloudFilter: TriFilter.all);
-                      },
-                    ),
-                    ChoiceChip(
-                      label: const Text('Soporta Cloud'),
-                      selected: state.steamCloudFilter == TriFilter.yes,
-                      showCheckmark: false,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      onSelected: (v) {
-                        if (v) context.read<HomeCubit>().updateFlag(steamCloudFilter: TriFilter.yes);
-                      },
-                    ),
-                    ChoiceChip(
-                      label: const Text('Sin Cloud'),
-                      selected: state.steamCloudFilter == TriFilter.no,
-                      showCheckmark: false,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      onSelected: (v) {
-                        if (v) context.read<HomeCubit>().updateFlag(steamCloudFilter: TriFilter.no);
-                      },
-                    ),
-                  ],
-                ),
+              _TriFilterChips(
+                yesLabel: 'Soporta Cloud',
+                noLabel: 'Sin Cloud',
+                selector: (s) => s.steamCloudFilter,
+                onSelected: (t) => context.read<HomeCubit>().updateFlag(steamCloudFilter: t),
               ),
             ),
 
             _buildGroup(
               'Precio',
-              BlocBuilder<HomeCubit, HomeState>(
-                builder: (ctx, state) => Wrap(
-                  spacing: 6, runSpacing: 6,
-                  children: [
-                    ChoiceChip(
-                      label: const Text('Todos'),
-                      selected: state.priceFilter == TriFilter.all,
-                      showCheckmark: false,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      onSelected: (v) {
-                        if (v) context.read<HomeCubit>().updateFlag(priceFilter: TriFilter.all);
-                      },
-                    ),
-                    ChoiceChip(
-                      label: const Text('Gratuitos'),
-                      selected: state.priceFilter == TriFilter.yes,
-                      showCheckmark: false,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      onSelected: (v) {
-                        if (v) context.read<HomeCubit>().updateFlag(priceFilter: TriFilter.yes);
-                      },
-                    ),
-                    ChoiceChip(
-                      label: const Text('De Pago'),
-                      selected: state.priceFilter == TriFilter.no,
-                      showCheckmark: false,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      onSelected: (v) {
-                        if (v) context.read<HomeCubit>().updateFlag(priceFilter: TriFilter.no);
-                      },
-                    ),
-                  ],
-                ),
+              _TriFilterChips(
+                yesLabel: 'Gratuitos',
+                noLabel: 'De Pago',
+                selector: (s) => s.priceFilter,
+                onSelected: (t) => context.read<HomeCubit>().updateFlag(priceFilter: t),
               ),
             ),
 
             _buildGroup(
               'GeForce NOW',
-              BlocBuilder<HomeCubit, HomeState>(
-                builder: (ctx, state) => Wrap(
-                  spacing: 6, runSpacing: 6,
-                  children: [
-                    ChoiceChip(
-                      label: const Text('Todos'),
-                      selected: state.geforceNowFilter == TriFilter.all,
-                      showCheckmark: false,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      onSelected: (v) {
-                        if (v) context.read<HomeCubit>().updateFlag(geforceNowFilter: TriFilter.all);
-                      },
-                    ),
-                    ChoiceChip(
-                      label: const Text('En GFN'),
-                      selected: state.geforceNowFilter == TriFilter.yes,
-                      showCheckmark: false,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      onSelected: (v) {
-                        if (v) context.read<HomeCubit>().updateFlag(geforceNowFilter: TriFilter.yes);
-                      },
-                    ),
-                    ChoiceChip(
-                      label: const Text('No en GFN'),
-                      selected: state.geforceNowFilter == TriFilter.no,
-                      showCheckmark: false,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      onSelected: (v) {
-                        if (v) context.read<HomeCubit>().updateFlag(geforceNowFilter: TriFilter.no);
-                      },
-                    ),
-                  ],
-                ),
+              _TriFilterChips(
+                yesLabel: 'En GFN',
+                noLabel: 'No en GFN',
+                selector: (s) => s.geforceNowFilter,
+                onSelected: (t) => context.read<HomeCubit>().updateFlag(geforceNowFilter: t),
               ),
             ),
 
@@ -1717,21 +2126,13 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
             ),
 
             _buildGroup(
+              'HowLongToBeat',
+              const _HltbRefreshControls(),
+            ),
+
+            _buildGroup(
               'Distribución del Slider',
-              BlocBuilder<HomeCubit, HomeState>(
-                builder: (ctx, state) => Wrap(
-                  spacing: 6, runSpacing: 6,
-                  children: SliderDistribution.values.map((dist) => ChoiceChip(
-                    label: Text(_distName(dist)),
-                    selected: state.sliderDistribution == dist,
-                    showCheckmark: false,
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    onSelected: (v) {
-                      if (v) context.read<HomeCubit>().updateFlag(sliderDistribution: dist);
-                    },
-                  )).toList(),
-                ),
-              ),
+              const _SliderDistributionChips(),
             ),
 
             BlocBuilder<HomeCubit, HomeState>(

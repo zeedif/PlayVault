@@ -12,12 +12,90 @@ enum SliderDistribution { discrete, quadratic, cubic }
 enum ExperienceFilter { any, coop, pvp, both }
 typedef StatusEntry = ({GameStatus status, bool visible});
 
+// ─── IMPORTACIÓN: TIPOS DE RESULTADO ───
+
+/// Plan inmutable de una importación ya analizada: la carga validada (deduplicada
+/// por internalId) más el recuento de efectos. Permite mostrar cifras exactas en la
+/// confirmación y luego aplicarla SIN volver a parsear ni recalcular.
+final class ImportPlan {
+  /// internalId → entrada cruda validada del JSON, en orden de aparición.
+  /// Ante duplicados dentro del propio archivo, se conserva el último (last-wins).
+  final Map<String, Map<String, dynamic>> byId;
+
+  /// Entradas cuyo internalId aún no existe en la biblioteca.
+  final int added;
+
+  /// Entradas cuyo internalId ya existe (se actualizarán o se sobrescribirán).
+  final int merged;
+
+  /// Juegos que se eliminarán: la biblioteca actual completa cuando [replace]; si no, 0.
+  final int deleted;
+
+  /// Borrar toda la biblioteca antes de importar.
+  final bool replace;
+
+  /// En modo merge, conservar las propiedades ausentes de los juegos coincidentes.
+  final bool preserveExisting;
+
+  const ImportPlan({
+    required this.byId,
+    required this.added,
+    required this.merged,
+    required this.deleted,
+    required this.replace,
+    required this.preserveExisting,
+  });
+
+  /// Total de entradas válidas y únicas que entrarán.
+  int get incoming => byId.length;
+
+  /// ¿La operación destruye datos que el usuario ya tenía?
+  ///  · replace                              → borra la biblioteca entera.
+  ///  · merge sin preservar, con coincidencias → reinicia las propiedades ausentes
+  ///    del JSON en los juegos que ya existían.
+  bool get isDestructive =>
+      (replace && deleted > 0) || (!replace && !preserveExisting && merged > 0);
+}
+
+/// Resultado sellado de [HomeCubit.analyzeImport]. Modela las tres únicas situaciones
+/// posibles para que la vista las trate de forma exhaustiva (switch sin `default`),
+/// en lugar de propagar `null` o banderas sueltas.
+sealed class ImportAnalysis {
+  const ImportAnalysis();
+
+  /// El texto no es JSON válido, o no es una lista / objeto `{"games": [...]}`.
+  const factory ImportAnalysis.invalid() = InvalidImport;
+
+  /// JSON válido pero sin ninguna entrada con `id_steam` o `name` utilizable.
+  const factory ImportAnalysis.empty() = EmptyImport;
+
+  /// Importación lista para confirmar y aplicar; [plan] lleva la carga ya validada.
+  const factory ImportAnalysis.ready(ImportPlan plan) = ReadyImport;
+}
+
+final class InvalidImport extends ImportAnalysis {
+  const InvalidImport();
+}
+
+final class EmptyImport extends ImportAnalysis {
+  const EmptyImport();
+}
+
+final class ReadyImport extends ImportAnalysis {
+  final ImportPlan plan;
+  const ReadyImport(this.plan);
+}
+
 // ─── ESTADO ───
 
 class HomeState({
   final List<Game> filteredGames = const [],
   final int gameCount = 0,
   final double totalBytes = 0,
+
+  // True hasta que _loadLocalState termina la primera carga desde disco.
+  // Distingue "cargando" de "cargado y vacío" para la vista.
+  final bool isLoading = true,
 
   // Estado de operaciones en segundo plano
   final bool isFetchingGfnDb = false,
@@ -27,6 +105,10 @@ class HomeState({
   // Configuración y rutas
   final String? esDePath,
   final Map<String, Map<String, dynamic>> filterProfiles = const {},
+
+  // HLTB — ajustes de sincronización
+  final int refreshIntervalDays = 30, // Días tras los cuales se re-consulta HLTB de cada juego.
+  final bool hltbAutoRefreshOnDetail = false, // Consultar HLTB al abrir el detalle de un juego.
 
   // Ordenación
   final String sortBy = 'name',
@@ -82,11 +164,14 @@ class HomeState({
     List<Game>? filteredGames,
     int? gameCount,
     double? totalBytes,
+    bool? isLoading,
     bool? isFetchingGfnDb,
     int? steamQueueSize,
     int? hltbQueueSize,
     String? esDePath,
     Map<String, Map<String, dynamic>>? filterProfiles,
+    int? refreshIntervalDays,
+    bool? hltbAutoRefreshOnDetail,
     String? sortBy,
     bool? sortAsc,
     bool? groupByStatus,
@@ -114,11 +199,14 @@ class HomeState({
     filteredGames: filteredGames ?? this.filteredGames,
     gameCount: gameCount ?? this.gameCount,
     totalBytes: totalBytes ?? this.totalBytes,
+    isLoading: isLoading ?? this.isLoading,
     isFetchingGfnDb: isFetchingGfnDb ?? this.isFetchingGfnDb,
     steamQueueSize: steamQueueSize ?? this.steamQueueSize,
     hltbQueueSize: hltbQueueSize ?? this.hltbQueueSize,
     esDePath: esDePath ?? this.esDePath,
     filterProfiles: filterProfiles ?? this.filterProfiles,
+    refreshIntervalDays: refreshIntervalDays ?? this.refreshIntervalDays,
+    hltbAutoRefreshOnDetail: hltbAutoRefreshOnDetail ?? this.hltbAutoRefreshOnDetail,
     sortBy: sortBy ?? this.sortBy,
     sortAsc: sortAsc ?? this.sortAsc,
     groupByStatus: groupByStatus ?? this.groupByStatus,
@@ -151,11 +239,14 @@ class HomeState({
         listEquals(other.filteredGames, filteredGames) &&
         other.gameCount == gameCount &&
         other.totalBytes == totalBytes &&
+        other.isLoading == isLoading &&
         other.isFetchingGfnDb == isFetchingGfnDb &&
         other.steamQueueSize == steamQueueSize &&
         other.hltbQueueSize == hltbQueueSize &&
         other.esDePath == esDePath &&
         mapEquals(other.filterProfiles, filterProfiles) &&
+        other.refreshIntervalDays == refreshIntervalDays &&
+        other.hltbAutoRefreshOnDetail == hltbAutoRefreshOnDetail &&
         other.sortBy == sortBy &&
         other.sortAsc == sortAsc &&
         other.groupByStatus == groupByStatus &&
@@ -186,11 +277,14 @@ class HomeState({
     filteredGames.length,
     gameCount,
     totalBytes,
+    isLoading,
     isFetchingGfnDb,
     steamQueueSize,
     hltbQueueSize,
     esDePath,
     filterProfiles.length,
+    refreshIntervalDays,
+    hltbAutoRefreshOnDetail,
     sortBy,
     sortAsc,
     groupByStatus,
@@ -359,6 +453,8 @@ class HomeCubit extends Cubit<HomeState> {
     'currentMaxBytes': s.currentMaxBytes,
     'filterProfiles': s.filterProfiles,
     if (s.esDePath != null) 'esDePath': s.esDePath,
+    'refreshIntervalDays': s.refreshIntervalDays,
+    'hltbAutoRefreshOnDetail': s.hltbAutoRefreshOnDetail,
   };
 
   HomeState _restoreFilters(HomeState current, Map<String, dynamic> profile) => current.copyWith(
@@ -387,85 +483,110 @@ class HomeCubit extends Cubit<HomeState> {
 
   // ─── CARGA / GUARDADO LOCAL ───
 
-  /// Carga el estado inicial desde disco: primero los archivos de juego individuales en `games/`,
-  /// después la configuración en `db.json`. Re-encola los juegos con fetches pendientes y
-  /// descarga el catálogo GFN si no existe localmente.
-  Future<void> _loadLocalState() async {
-    final gamesDir = await _gamesDir;
-    final Map<String, Game> loadedGames = {};
+  /// Lee en paralelo todos los archivos de juego individuales de `games/`.
+  /// Puebla `_gameFiles` (internalId → filename) como efecto secundario y devuelve
+  /// el mapa internalId → Game listo para fusionar en la tabla de verdad. No encola
+  /// nada: el caller decide las colas una vez conocidos los settings.
+  Future<Map<String, Game>> _loadGamesFromDisk() async {
+    final gamesDir = await _gamesDir; // el getter garantiza que el directorio existe
+    final loadedGames = <String, Game>{};
 
-    if (await gamesDir.exists()) {
-      final files = gamesDir.listSync().whereType<File>().where((f) => f.path.endsWith('.json'));
+    final files = gamesDir.listSync().whereType<File>().where((f) => f.path.endsWith('.json'));
 
-      final results = await Future.wait(files.map((file) async {
-        try {
-          final content = await file.readAsString();
-          return (file.uri.pathSegments.last, Game.fromJson(jsonDecode(content)));
-        } catch (e) {
-          debugPrint('Error loading game file ${file.path}: $e');
-          return null;
-        }
-      }));
-
-      for (final (filename, game) in results.nonNulls) {
-        loadedGames[game.internalId] = game;
-        _gameFiles[game.internalId] = filename;
-        // Reanudar pendientes que fallaron por red (Prioridad normal)
-        if (game.idSteam != null) {
-          _steamIdToInternalId[game.idSteam!] = game.internalId;
-          if (!game.hasFetchedSteam) _enqueueForSteam(game.idSteam!);
-          if (!game.hasFetchedHltb) _enqueueForHltb(game.idSteam!);
-        }
+    final results = await Future.wait(files.map((file) async {
+      try {
+        final content = await file.readAsString();
+        return (file.uri.pathSegments.last, Game.fromJson(jsonDecode(content)));
+      } catch (e) {
+        debugPrint('Error loading game file ${file.path}: $e');
+        return null;
       }
-    }
+    }));
 
+    for (final (filename, game) in results.nonNulls) {
+      loadedGames[game.internalId] = game;
+      _gameFiles[game.internalId] = filename;
+    }
+    return loadedGames;
+  }
+
+  /// Lee y decodifica `db.json`. Devuelve el mapa `settings` en crudo, o null si el
+  /// archivo no existe o está corrupto. No toca el estado: el caller lo aplica.
+  Future<Map<String, dynamic>?> _loadSettingsFromDisk() async {
+    final file = await _localFile;
+    if (!await file.exists()) return null;
+    try {
+      final decoded = jsonDecode(await file.readAsString());
+      if (decoded case {'settings': Map<String, dynamic> settings}) return settings;
+    } catch (e) {
+      debugPrint('Error al cargar estado local: $e');
+    }
+    return null;
+  }
+
+  /// Carga el estado inicial desde disco. Los archivos de juego individuales en `games/`,
+  /// la configuración en `db.json` y la comprobación del catálogo GFN son fuentes de disco
+  /// independientes: se lanzan a la vez y se esperan después, de modo que el arranque cueste
+  /// el máximo de las tres esperas de I/O en lugar de su suma. Re-encola en una única pasada
+  /// los juegos con fetches pendientes (Steam + HLTB) y descarga el catálogo GFN si no existe.
+  Future<void> _loadLocalState() async {
+    final gamesFuture = _loadGamesFromDisk();
+    final settingsFuture = _loadSettingsFromDisk();
+    final gfnExistsFuture = _gfnLocalFile.then((f) => f.exists());
+
+    final loadedGames = await gamesFuture;
     _gamesById.addAll(loadedGames);
 
-    final file = await _localFile;
+    final settings = await settingsFuture;
     HomeState newState = state;
 
-    if (await file.exists()) {
-      try {
-        final decoded = jsonDecode(await file.readAsString());
-        if (decoded case {'settings': Map<String, dynamic> settings}) {
-          newState = state.copyWith(
-            visibleLanguages: _parseEnumSet(GameLanguage.values, settings['visibleLanguages']),
-            visibleSpTypes: _parseEnumSet(SpType.values, settings['visibleSpTypes']),
-            visibleVrTypes: _parseEnumSet(VrSupport.values, settings['visibleVrTypes']),
-            includeSoftware: settings['includeSoftware'] as bool?,
-            binaryFormat: settings['binaryFormat'] as bool?,
-            matchmakingFilter: TriFilter.values.byNameOrNull(settings['matchmakingFilter'] as String?),
-            matchmakingExperience: ExperienceFilter.values.byNameOrNull(settings['matchmakingExperience'] as String?),
-            friendPlayFilter: TriFilter.values.byNameOrNull(settings['friendPlayFilter'] as String?),
-            friendPlayExperience: ExperienceFilter.values.byNameOrNull(settings['friendPlayExperience'] as String?),
-            achievementsFilter: TriFilter.values.byNameOrNull(settings['achievementsFilter'] as String?),
-            steamCloudFilter: TriFilter.values.byNameOrNull(settings['steamCloudFilter'] as String?),
-            priceFilter: TriFilter.values.byNameOrNull(settings['priceFilter'] as String?),
-            geforceNowFilter: TriFilter.values.byNameOrNull(settings['geforceNowFilter'] as String?),
-            sliderDistribution: SliderDistribution.values.byNameOrNull(settings['sliderDistribution'] as String?),
-            sortBy: settings['sortBy'] as String?,
-            sortAsc: settings['sortAsc'] as bool?,
-            groupByStatus: settings['groupByStatus'] as bool?,
-            statusFilters: _parseStatusFilters(settings['statusFilters']),
-            esDePath: settings['esDePath'] as String?,
-            currentMinBytes: (settings['currentMinBytes'] as num?)?.toDouble(),
-            currentMaxBytes: (settings['currentMaxBytes'] as num?)?.toDouble(),
-            filterProfiles: _parseFilterProfiles(settings['filterProfiles']),
-          );
-        }
-      } catch (e) {
-        debugPrint('Error al cargar estado local: $e');
+    if (settings != null) {
+      newState = state.copyWith(
+        visibleLanguages: _parseEnumSet(GameLanguage.values, settings['visibleLanguages']),
+        visibleSpTypes: _parseEnumSet(SpType.values, settings['visibleSpTypes']),
+        visibleVrTypes: _parseEnumSet(VrSupport.values, settings['visibleVrTypes']),
+        includeSoftware: settings['includeSoftware'] as bool?,
+        binaryFormat: settings['binaryFormat'] as bool?,
+        matchmakingFilter: TriFilter.values.byNameOrNull(settings['matchmakingFilter'] as String?),
+        matchmakingExperience: ExperienceFilter.values.byNameOrNull(settings['matchmakingExperience'] as String?),
+        friendPlayFilter: TriFilter.values.byNameOrNull(settings['friendPlayFilter'] as String?),
+        friendPlayExperience: ExperienceFilter.values.byNameOrNull(settings['friendPlayExperience'] as String?),
+        achievementsFilter: TriFilter.values.byNameOrNull(settings['achievementsFilter'] as String?),
+        steamCloudFilter: TriFilter.values.byNameOrNull(settings['steamCloudFilter'] as String?),
+        priceFilter: TriFilter.values.byNameOrNull(settings['priceFilter'] as String?),
+        geforceNowFilter: TriFilter.values.byNameOrNull(settings['geforceNowFilter'] as String?),
+        sliderDistribution: SliderDistribution.values.byNameOrNull(settings['sliderDistribution'] as String?),
+        sortBy: settings['sortBy'] as String?,
+        sortAsc: settings['sortAsc'] as bool?,
+        groupByStatus: settings['groupByStatus'] as bool?,
+        statusFilters: _parseStatusFilters(settings['statusFilters']),
+        esDePath: settings['esDePath'] as String?,
+        refreshIntervalDays: (settings['refreshIntervalDays'] as num?)?.toInt(),
+        hltbAutoRefreshOnDetail: settings['hltbAutoRefreshOnDetail'] as bool?,
+        currentMinBytes: (settings['currentMinBytes'] as num?)?.toDouble(),
+        currentMaxBytes: (settings['currentMaxBytes'] as num?)?.toDouble(),
+        filterProfiles: _parseFilterProfiles(settings['filterProfiles']),
+      );
+    }
+
+    for (final game in _gamesById.values) {
+      if (game.idSteam != null) {
+        _steamIdToInternalId[game.idSteam!] = game.internalId;
+        // Reanudar pendientes que fallaron por red (Prioridad normal)
+        if (!game.hasFetchedSteam) _enqueueForSteam(game.idSteam!);
+        // Encola para HLTB los juegos nunca consultados o cuya última consulta superó
+        // el intervalo configurado, ya con refreshIntervalDays cargado desde settings.
+        if (game.needsHltbRefresh(newState.refreshIntervalDays)) _enqueueForHltb(game.idSteam!);
       }
     }
 
-    newState = _applyFilters(_updateLimits(newState));
+    newState = _applyFilters(_updateLimits(newState)).copyWith(isLoading: false);
     emit(newState);
 
     _startSteamQueue();
     _startHltbQueue();
 
-    final gfnFile = await _gfnLocalFile;
-    if (!await gfnFile.exists()) {
+    if (!await gfnExistsFuture) {
       fetchGeforceNowDatabase();
     } else {
       _startGfnComparisonQueue();
@@ -565,71 +686,112 @@ class HomeCubit extends Cubit<HomeState> {
     return buffer.toString();
   }
 
-  Future<void> processJson(String jsonString, {required bool replace}) async {
-    switch (jsonDecode(jsonString)) {
-      case {'games': List gamesList}:
-        await _processGamesList(gamesList, replace: replace);
-      case List gamesList:
-        await _processGamesList(gamesList, replace: replace);
+  /// Analiza un JSON de importación SIN aplicarlo ni construir ningún [Game]: valida y
+  /// deduplica las entradas por internalId y cuenta los efectos (añadidos/fusionados/
+  /// eliminados). Es O(M) sobre las M entradas del archivo, sin recorrer la biblioteca.
+  /// Devuelve un [ImportAnalysis] sellado; el [ImportPlan] resultante se pasa tal cual a
+  /// [applyImport], de modo que la importación se parsea UNA sola vez.
+  ///
+  ///  · [replace]          borra toda la biblioteca antes de importar.
+  ///  · [preserveExisting] en modo merge, conserva las propiedades ausentes del JSON en
+  ///                       los juegos que ya existían (si es false, se reinician).
+  ImportAnalysis analyzeImport(
+    String jsonString, {
+    required bool replace,
+    required bool preserveExisting,
+  }) {
+    final List<dynamic> rawList;
+    try {
+      rawList = switch (jsonDecode(jsonString)) {
+        {'games': final List l} => l,
+        final List l => l,
+        _ => throw const FormatException('shape'),
+      };
+    } catch (_) {
+      return const ImportAnalysis.invalid();
     }
-  }
 
-  /// Importa una lista de juegos: con `replace=true` borra todos los datos existentes primero.
-  /// En modo merge actualiza por `internalId`; juegos desconocidos se añaden, conocidos se fusionan.
-  /// Escribe a disco en lotes paralelos de 50 para no saturar el filesystem.
-  Future<void> _processGamesList(List<dynamic> rawList, {required bool replace}) async {
+    // Deduplicación intra-archivo por internalId (last-wins). El Map conserva el orden
+    // de primera aparición. NO se construye ningún Game aquí.
+    final byId = <String, Map<String, dynamic>>{};
+    for (final raw in rawList.whereType<Map<String, dynamic>>()) {
+      final rawId = raw['id_steam'];
+      final rawName = raw['name'];
+      // id_steam/name, si están presentes, deben tener el tipo que Game.fromJson espera;
+      // de lo contrario la entrada es inservible y se descarta (antes esto reventaba).
+      if (rawId != null && rawId is! int) continue;
+      if (rawName != null && rawName is! String) continue;
+      final int? idSteam = rawId as int?;
+      final String? name = rawName as String?;
+      if (idSteam == null && (name == null || name.trim().isEmpty)) continue;
+      byId[_internalIdFromRaw(idSteam, name)] = raw;
+    }
+
+    if (byId.isEmpty) return const ImportAnalysis.empty();
+
+    var added = 0;
+    var merged = 0;
     if (replace) {
-      final gamesDir = await _gamesDir;
-      if (await gamesDir.exists()) {
-        for (final f in gamesDir.listSync().whereType<File>()) {
-          if (f.path.endsWith('.json')) await f.delete();
+      // Tras el borrado total nada preexiste: todo entra como nuevo.
+      added = byId.length;
+    } else {
+      for (final id in byId.keys) {
+        if (_gamesById.containsKey(id)) {
+          merged++;
+        } else {
+          added++;
         }
       }
-      _gameFiles.clear();
-      _steamQueue.clear();
-      _hltbQueue.clear();
-      _gamesById.clear();
-      _steamIdToInternalId.clear();
-      _sizeCache = null;
     }
+    final deleted = replace ? _gamesById.length : 0;
 
-    final Map<String, Game> newAllGames = Map.from(_gamesById);
+    return ImportAnalysis.ready(ImportPlan(
+      byId: byId,
+      added: added,
+      merged: merged,
+      deleted: deleted,
+      replace: replace,
+      preserveExisting: preserveExisting,
+    ));
+  }
+
+  /// Aplica un [ImportPlan] ya analizado, SIN volver a parsear el JSON. Construye cada
+  /// [Game] exactamente una vez y muta `_gamesById` in situ (sin copiar el mapa completo),
+  /// de modo que el coste es O(M) sobre las entradas importadas en lugar de O(N+M) sobre
+  /// toda la biblioteca. Persiste a disco en lotes paralelos de 50.
+  Future<void> applyImport(ImportPlan plan) async {
+    if (plan.replace) await _wipeAllGames();
+
     final gamesToSave = <Game>[];
 
-    // Acumular en variables locales para evitar un segundo recorrido O(N) dentro de _updateLimits.
+    // Caché de tamaños (min/max) actualizada incrementalmente para no re-escanear O(N).
     var cMin = _sizeCache?.min ?? double.infinity;
     var cMax = _sizeCache?.max ?? double.negativeInfinity;
 
-    for (final rawGame in rawList.whereType<Map<String, dynamic>>()) {
-      final steamId = rawGame['id_steam'];
-      final gameName = rawGame['name']?.toString();
-      if (steamId == null && (gameName == null || gameName.trim().isEmpty)) continue;
+    plan.byId.forEach((id, raw) {
+      final existing = _gamesById[id];
+      // Enlazar `existing` por patrón de tipo promueve a no-nulo; un case `null` + `_`
+      // NO lo promovería. Merge (updateFromJson) sólo si existe Y se preservan campos.
+      final Game g = switch (existing) {
+        final Game current when plan.preserveExisting => current.updateFromJson(raw),
+        _ => Game.fromJson(raw),
+      };
 
-      final g = Game.fromJson(rawGame);
-      if (replace || !newAllGames.containsKey(g.internalId)) {
-        newAllGames[g.internalId] = g;
-      } else {
-        newAllGames[g.internalId] = newAllGames[g.internalId]!.updateFromJson(rawGame);
-      }
-      final finalGame = newAllGames[g.internalId]!;
-      gamesToSave.add(finalGame);
+      _gamesById[id] = g;
+      if (g.idSteam != null) _steamIdToInternalId[g.idSteam!] = id;
+      gamesToSave.add(g);
 
-      // Actualización incremental de la caché para evitar un segundo scan O(N).
-      final size = finalGame.sizeInBytes;
+      final size = g.sizeInBytes;
       if (size < cMin) cMin = size;
       if (size > cMax) cMax = size;
-    }
+    });
 
     if (gamesToSave.isNotEmpty) _sizeCache = (min: cMin, max: cMax);
 
-    _gamesById.addAll(newAllGames);
-    for (final g in newAllGames.values) {
-      if (g.idSteam != null) _steamIdToInternalId[g.idSteam!] = g.internalId;
-    }
     for (final g in gamesToSave) {
       if (g.idSteam != null) {
         if (!g.hasFetchedSteam) _enqueueForSteam(g.idSteam!);
-        if (!g.hasFetchedHltb) _enqueueForHltb(g.idSteam!);
+        if (g.needsHltbRefresh(state.refreshIntervalDays)) _enqueueForHltb(g.idSteam!);
       }
     }
 
@@ -637,7 +799,7 @@ class HomeCubit extends Cubit<HomeState> {
     emit(newState);
     await _saveLocalState(newState);
 
-    // Writes paralelas en lotes de 50 para no saturar el filesystem
+    // Writes paralelas en lotes de 50 para no saturar el filesystem.
     const batchSize = 50;
     for (int i = 0; i < gamesToSave.length; i += batchSize) {
       final end = (i + batchSize).clamp(0, gamesToSave.length);
@@ -648,6 +810,45 @@ class HomeCubit extends Cubit<HomeState> {
     _startSteamQueue();
     _startHltbQueue();
     _startGfnComparisonQueue();
+  }
+
+  /// Variante no interactiva (sin diálogo de confirmación): analiza y aplica de una vez.
+  /// Útil para pruebas o flujos programáticos; la UI usa analyzeImport + applyImport.
+  Future<void> processJson(
+    String jsonString, {
+    required bool replace,
+    bool preserveExisting = true,
+  }) async {
+    if (analyzeImport(jsonString, replace: replace, preserveExisting: preserveExisting)
+        case ReadyImport(:final plan)) {
+      await applyImport(plan);
+    }
+  }
+
+  /// Reconstruye el internalId de una entrada cruda replicando exactamente la lógica de
+  /// [Game.internalId], para poder indexar el plan sin instanciar el Game. (Lo ideal a
+  /// futuro sería un `Game.internalIdOf(idSteam, name)` estático como única fuente.)
+  static String _internalIdFromRaw(int? idSteam, String? name) => switch ((idSteam, name)) {
+        (final int id, final String n) => '${id}_${Game.normalizeIdName(n)}',
+        (final int id, null) => id.toString(),
+        (null, final String n) => Game.normalizeIdName(n),
+        (null, null) => '',
+      };
+
+  /// Borra toda la biblioteca: elimina los .json del disco y limpia índices, colas y caché.
+  Future<void> _wipeAllGames() async {
+    final gamesDir = await _gamesDir;
+    if (await gamesDir.exists()) {
+      for (final f in gamesDir.listSync().whereType<File>()) {
+        if (f.path.endsWith('.json')) await f.delete();
+      }
+    }
+    _gameFiles.clear();
+    _steamQueue.clear();
+    _hltbQueue.clear();
+    _gamesById.clear();
+    _steamIdToInternalId.clear();
+    _sizeCache = null;
   }
 
   // ─── GEFORCE NOW API & DB QUEUE ───
@@ -979,14 +1180,19 @@ class HomeCubit extends Cubit<HomeState> {
           game.name,
           game.hltbStats?.id,
           game.idSteam?.toString(),
-          game.hasFetchedHltb,
+          game.hltbFetchedAt != null,
         );
-        // Steam pudo haber actualizado el juego mientras esperábamos la respuesta de HLTB.
-        final freshGame = _gamesById[internalId] ?? game;
-        _applyQueuePatch(freshGame, {
-          'hltb_stats': fetchedData?.toJson(),
-          'has_fetched_hltb': true,
-        });
+        // Solo sellamos la marca de tiempo en un fetch exitoso. Un resultado nulo
+        // (sin datos o fallo de red) deja hltbFetchedAt intacto para reintentar
+        // en el siguiente ciclo (resiliencia pasiva).
+        if (fetchedData != null) {
+          // Steam pudo haber actualizado el juego mientras esperábamos la respuesta de HLTB.
+          final freshGame = _gamesById[internalId] ?? game;
+          _applyQueuePatch(freshGame, {
+            'hltb_stats': fetchedData.toJson(),
+            'hltb_fetched_at': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+          });
+        }
       } catch (e) {
         debugPrint('HLTB Error general: $e');
         emit(state.copyWith(hltbQueueSize: 0));
@@ -1088,6 +1294,8 @@ class HomeCubit extends Cubit<HomeState> {
     TriFilter? geforceNowFilter,
     SliderDistribution? sliderDistribution,
     String? esDePath,
+    int? refreshIntervalDays,
+    bool? hltbAutoRefreshOnDetail,
   }) {
     var newState = state.copyWith(
       includeSoftware: software,
@@ -1110,6 +1318,8 @@ class HomeCubit extends Cubit<HomeState> {
       geforceNowFilter: geforceNowFilter,
       sliderDistribution: sliderDistribution,
       esDePath: esDePath,
+      refreshIntervalDays: refreshIntervalDays,
+      hltbAutoRefreshOnDetail: hltbAutoRefreshOnDetail,
     );
     if (binary != null) newState = _updateLimits(newState);
     newState = _applyFilters(newState);
@@ -1304,7 +1514,7 @@ class HomeCubit extends Cubit<HomeState> {
           ? _compareCustom(a.name ?? '', b.name ?? '')
           : _compareCustom(b.name ?? '', a.name ?? ''));
     } else if (s.sortBy case 'hltbMain' || 'hltbExtras' || 'hltbComplete') {
-      double? getVal(Game g) {
+      int? getVal(Game g) {
         final stats = g.hltbStats;
         if (stats == null) return null;
         final v = switch (s.sortBy) {
@@ -1318,7 +1528,7 @@ class HomeCubit extends Cubit<HomeState> {
         final aVal = getVal(a);
         final bVal = getVal(b);
         return switch ((aVal, bVal)) {
-          (final double a, final double b) => s.sortAsc ? a.compareTo(b) : b.compareTo(a),
+          (final int a, final int b) => s.sortAsc ? a.compareTo(b) : b.compareTo(a),
           (null, null) => 0,
           (null, _)    => 1,
           (_, null)    => -1,

@@ -4,11 +4,11 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 class HltbTime {
-  final double classic;
-  final double average;
-  final double median;
-  final double rushed;
-  final double leisure;
+  final int classic;
+  final int average;
+  final int median;
+  final int rushed;
+  final int leisure;
 
   const new({
     this.classic = 0,
@@ -19,11 +19,11 @@ class HltbTime {
   });
 
   factory fromJson(Map<String, dynamic> json) => HltbTime(
-    classic: (json['classic'] as num?)?.toDouble() ?? 0,
-    average: (json['average'] as num?)?.toDouble() ?? 0,
-    median: (json['median'] as num?)?.toDouble() ?? 0,
-    rushed: (json['rushed'] as num?)?.toDouble() ?? 0,
-    leisure: (json['leisure'] as num?)?.toDouble() ?? 0,
+    classic: (json['classic'] as num?)?.toInt() ?? 0,
+    average: (json['average'] as num?)?.toInt() ?? 0,
+    median: (json['median'] as num?)?.toInt() ?? 0,
+    rushed: (json['rushed'] as num?)?.toInt() ?? 0,
+    leisure: (json['leisure'] as num?)?.toInt() ?? 0,
   );
 
   Map<String, dynamic> toJson() => {
@@ -282,7 +282,7 @@ class HltbService {
     final gameData = (jsonDecode(scriptMatch.group(1)!)?['props']?['pageProps']?['game']?['data']?['game'] as List?)?.firstOrNull as Map<String, dynamic>?;
     if (gameData == null) return null;
 
-    double toHours(dynamic seconds) => seconds == null ? 0 : (seconds as num) / 3600.0;
+    int toMin(dynamic seconds) => seconds == null ? 0 : (seconds as num).toInt() ~/ 60;
 
     final aliases = (gameData['game_alias']?.toString() ?? '')
         .split(',')
@@ -296,32 +296,32 @@ class HltbService {
       name: gameData['game_name']?.toString() ?? '',
       aliases: aliases,
       mainStory: HltbTime(
-        classic: toHours(gameData['comp_main']),
-        average: toHours(gameData['comp_main_avg']),
-        median: toHours(gameData['comp_main_med']),
-        rushed: toHours(gameData['comp_main_l']),
-        leisure: toHours(gameData['comp_main_h']),
+        classic: toMin(gameData['comp_main']),
+        average: toMin(gameData['comp_main_avg']),
+        median: toMin(gameData['comp_main_med']),
+        rushed: toMin(gameData['comp_main_l']),
+        leisure: toMin(gameData['comp_main_h']),
       ),
       extras: HltbTime(
-        classic: toHours(gameData['comp_plus']),
-        average: toHours(gameData['comp_plus_avg']),
-        median: toHours(gameData['comp_plus_med']),
-        rushed: toHours(gameData['comp_plus_l']),
-        leisure: toHours(gameData['comp_plus_h']),
+        classic: toMin(gameData['comp_plus']),
+        average: toMin(gameData['comp_plus_avg']),
+        median: toMin(gameData['comp_plus_med']),
+        rushed: toMin(gameData['comp_plus_l']),
+        leisure: toMin(gameData['comp_plus_h']),
       ),
       completionist: HltbTime(
-        classic: toHours(gameData['comp_100']),
-        average: toHours(gameData['comp_100_avg']),
-        median: toHours(gameData['comp_100_med']),
-        rushed: toHours(gameData['comp_100_l']),
-        leisure: toHours(gameData['comp_100_h']),
+        classic: toMin(gameData['comp_100']),
+        average: toMin(gameData['comp_100_avg']),
+        median: toMin(gameData['comp_100_med']),
+        rushed: toMin(gameData['comp_100_l']),
+        leisure: toMin(gameData['comp_100_h']),
       ),
       allPlayStyles: HltbTime(
-        classic: toHours(gameData['comp_all']),
-        average: toHours(gameData['comp_all_avg']),
-        median: toHours(gameData['comp_all_med']),
-        rushed: toHours(gameData['comp_all_l']),
-        leisure: toHours(gameData['comp_all_h']),
+        classic: toMin(gameData['comp_all']),
+        average: toMin(gameData['comp_all_avg']),
+        median: toMin(gameData['comp_all_med']),
+        rushed: toMin(gameData['comp_all_l']),
+        leisure: toMin(gameData['comp_all_h']),
       ),
     );
   }
