@@ -541,7 +541,15 @@ class HomeView extends StatelessWidget {
             const Expanded(child: Center(child: CircularProgressIndicator(strokeWidth: 12)))
           else if (!hasGames)
             const Expanded(
-              child: Center(child: Text('No hay datos. Importa un JSON o vincula tu cuenta de Steam para comenzar.')),
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 18),
+                child: Center(
+                  child: Text(
+                    'No hay datos. Importa un JSON o vincula tu cuenta de Steam para comenzar.',
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
             )
           else ...[
             const _SummaryText(),
