@@ -63,15 +63,18 @@ class Game({
         .trim();
   }
 
-  /// Identificador único en memoria para ubicar el archivo asociado en la base de datos distribuida.
-  /// Incluye el nombre normalizado cuando hay idSteam para diferenciar expansiones 
-  /// (ej. F.E.A.R. vs F.E.A.R.: Extraction Point) pero evitar duplicados por case-sensitive o tags.
-  String get internalId => switch ((idSteam, name)) {
+  /// Deriva el internalId a partir de (idSteam, name) SIN instanciar un Game.
+  static String internalIdOf(int? idSteam, String? name) => switch ((idSteam, name)) {
     (final int id, final String n) => '${id}_${normalizeIdName(n)}',
     (final int id, null)           => id.toString(),
     (null, final String n)         => normalizeIdName(n),
     (null, null)                   => '',
   };
+
+  /// Identificador único en memoria para ubicar el archivo asociado en la base de datos distribuida.
+  /// Incluye el nombre normalizado cuando hay idSteam para diferenciar expansiones
+  /// (ej. F.E.A.R. vs F.E.A.R.: Extraction Point) pero evitar duplicados por case-sensitive o tags.
+  String get internalId => internalIdOf(idSteam, name);
 
   /// Determina el idioma basado en las propiedades.
   GameLanguage get language {
@@ -79,11 +82,11 @@ class Game({
     return hasSpanish == true ? GameLanguage.spanish : GameLanguage.english;
   }
 
-  /// Indica si los datos de HLTB deben (re)consultarse. Un juego nunca obtenido
-  /// (hltbFetchedAt == null) siempre se consulta la primera vez. Un [intervalDays]
-  /// <= 0 desactiva la RE-consulta periódica (auto-actualización OFF); en caso
-  /// contrario, se refresca cuando la última consulta supera el intervalo.
+  /// Indica si los datos de HLTB deben (re)consultarse automáticamente. El software nunca
+  /// se auto-consulta (no existe en HLTB). Un juego nunca obtenido se consulta la primera
+  /// vez; un [intervalDays] <= 0 desactiva la re-consulta periódica.
   bool needsHltbRefresh(int intervalDays) {
+    if (isSoftware == true) return false; // las apps no existen en HLTB
     if (hltbFetchedAt == null) return true; // siempre obtener la primera vez
     if (intervalDays <= 0) return false; // 0 = re-consulta desactivada
     final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
@@ -157,7 +160,7 @@ class Game({
     if (userNote != null) 'user_note': userNote,
     'has_fetched_steam': hasFetchedSteam,
     'has_fetched_gfn': hasFetchedGfn,
-    if (hltbFetchedAt != null) 'hltb_fetched_at': hltbFetchedAt,
+    'hltb_fetched_at': hltbFetchedAt,
     if (hltbStats != null) 'hltb_stats': hltbStats!.toJson(),
   };
 
