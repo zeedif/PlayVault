@@ -12,6 +12,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'hltb_service.dart';
 import 'model.dart';
 import 'state.dart';
+import 'steam_service.dart';
 
 final Random _random = Random();
 const List<String> _imgExts = ['.png', '.jpg', '.jpeg', '.webp'];
@@ -65,6 +66,21 @@ String _formatDuration(int? minutes) {
     (_, 0) => '${hh}h',
     _ => '${hh}h ${mm}m',
   };
+}
+
+/// Unidad con la que se muestra un tamaño: MB/GB, o MiB/GiB si el ajuste es binario.
+({double divisor, String name}) _unitData(double bytes, bool isBinary) =>
+    switch ((isBinary, bytes >= (isBinary ? 1073741824.0 : 1000000000.0))) {
+      (true, true) => (divisor: 1073741824.0, name: "GiB"),
+      (true, false) => (divisor: 1048576.0, name: "MiB"),
+      (false, true) => (divisor: 1000000000.0, name: "GB"),
+      (false, false) => (divisor: 1000000.0, name: "MB"),
+    };
+
+/// Cifra del tamaño en su unidad, sin decimales cuando es exacta.
+String _formatUnitValue(double bytes, bool isBinary) {
+  final value = bytes / _unitData(bytes, isBinary).divisor;
+  return value == value.toInt() ? value.toInt().toString() : value.toStringAsFixed(2);
 }
 
 String? _getEsDeMediaPath(String? basePath, String folder, String? gameName) {
@@ -136,6 +152,267 @@ Future<bool?> _confirmImport(BuildContext context, ImportPlan plan) {
       ],
     ),
   );
+}
+
+// ==========================================
+// VINCULACIÓN CON STEAM
+// ==========================================
+
+String _steamFailureMessage(SteamFailure reason) => switch (reason) {
+  SteamFailure.badInput => 'Escribe tu SteamID64, tu nombre personalizado o la URL de tu perfil.',
+  SteamFailure.notFound => 'No existe ningún perfil de Steam con esos datos.',
+  SteamFailure.network => 'No se pudo contactar con Steam. Revisa la conexión.',
+  SteamFailure.badKey => 'La API key no es válida.',
+  SteamFailure.needsKey => 'Hace falta una API key: Steam ya no deja leer la lista de juegos sin ella.',
+  SteamFailure.privateProfile =>
+    'El perfil no comparte su lista de juegos. Hazla pública o usa la API key de esa misma cuenta.',
+  SteamFailure.emptyLibrary => 'El perfil no tiene ningún juego visible.',
+  SteamFailure.notLinked => 'No hay ninguna cuenta de Steam vinculada.',
+  SteamFailure.busy => 'Ya hay una importación de Steam en curso.',
+};
+
+String _steamSyncMessage(SteamSync result) => switch (result) {
+  SteamSyncFailed(:final reason) => _steamFailureMessage(reason),
+  SteamSyncDone(added: 0, updated: 0) => 'Steam: no se encontró ningún juego.',
+  SteamSyncDone(added: 0, :final updated) => 'Steam: sin novedades, los ${_games(updated)} ya estaban.',
+  SteamSyncDone(:final added, :final updated) =>
+    'Steam: ${_games(added)} añadidos${updated > 0 ? ' y $updated ya estaban' : ''}.',
+};
+
+String _formatEpoch(int seconds) {
+  final d = DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
+  String two(int v) => v.toString().padLeft(2, '0');
+  return '${two(d.day)}/${two(d.month)}/${d.year} ${two(d.hour)}:${two(d.minute)}';
+}
+
+enum _LibraryFate { cancel, keep, wipe }
+
+/// Al cambiar de cuenta o desvincular, decide qué pasa con lo ya rastreado: conservarlo
+/// y añadir encima lo de la cuenta nueva, o vaciar la biblioteca junto con todos sus datos.
+Future<_LibraryFate> _askLibraryFate(BuildContext context, int gameCount, {required bool unlinking}) async {
+  final scheme = Theme.of(context).colorScheme;
+  final fate = await showDialog<_LibraryFate>(
+    context: context,
+    builder: (dctx) => AlertDialog(
+      icon: Icon(Icons.warning_amber_rounded, color: scheme.error),
+      title: Text(unlinking ? '¿Qué hago con tus juegos?' : '¿Qué hago con la biblioteca actual?'),
+      content: Text(
+        unlinking
+            ? 'Vas a desvincular la cuenta. Puedes conservar ${_games(gameCount)} que ya rastreas '
+                'o vaciar la biblioteca con todos sus datos (estados, notas, tiempos y metadatos).'
+            : 'Vas a cambiar la vinculación de Steam. Puedes conservar ${_games(gameCount)} que ya '
+                'rastreas y añadir encima los de la cuenta nueva, o vaciar la biblioteca con todos '
+                'sus datos (estados, notas, tiempos y metadatos) antes de importarla.',
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(dctx, _LibraryFate.cancel), child: const Text('Cancelar')),
+        TextButton(onPressed: () => Navigator.pop(dctx, _LibraryFate.keep), child: const Text('Conservar')),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: scheme.error,
+            foregroundColor: scheme.onError,
+          ),
+          onPressed: () => Navigator.pop(dctx, _LibraryFate.wipe),
+          child: const Text('Vaciar'),
+        ),
+      ],
+    ),
+  );
+  return fate ?? _LibraryFate.cancel;
+}
+
+/// Formulario de vinculación. El perfil basta para importar los juegos públicos; la API
+/// key (de esa misma cuenta) añade además los que estén marcados como privados.
+class _SteamAccountDialog extends StatefulWidget {
+  const _SteamAccountDialog();
+
+  @override
+  State<_SteamAccountDialog> createState() => _SteamAccountDialogState();
+}
+
+class _SteamAccountDialogState extends State<_SteamAccountDialog> {
+  late final HomeCubit _cubit = context.read<HomeCubit>();
+  late final _profileCtrl = TextEditingController(text: _cubit.state.steamId ?? '');
+  late final _keyCtrl = TextEditingController(text: _cubit.steamApiKey ?? '');
+  bool _obscureKey = true;
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _profileCtrl.dispose();
+    _keyCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _link() async {
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+
+    final key = _keyCtrl.text.trim();
+    switch (await _cubit.resolveSteamAccount(_profileCtrl.text, key)) {
+      case SteamFail(:final reason):
+        if (mounted) {
+          setState(() {
+            _busy = false;
+            _error = _steamFailureMessage(reason);
+          });
+        }
+      case SteamOk(:final value):
+        if (!mounted) return;
+        var wipe = false;
+        // Solo se pregunta si hay algo que perder Y la vinculación deja de ser la misma.
+        if (_cubit.state.gameCount > 0 &&
+            (value.id64 != _cubit.state.steamId || key != (_cubit.steamApiKey ?? ''))) {
+          final fate = await _askLibraryFate(context, _cubit.state.gameCount, unlinking: false);
+          if (!mounted || fate == _LibraryFate.cancel) {
+            if (mounted) setState(() => _busy = false);
+            return;
+          }
+          wipe = fate == _LibraryFate.wipe;
+        }
+
+        await _cubit.linkSteamAccount(value, apiKey: key, wipeLibrary: wipe);
+        if (mounted) Navigator.pop(context);
+        messenger.showSnackBar(SnackBar(
+          content: Text('Cuenta vinculada: ${value.persona ?? value.id64}. Importando biblioteca...'),
+          duration: const Duration(minutes: 1),
+        ));
+        final result = await _cubit.syncSteamLibrary();
+        // Sin retirar el aviso de progreso, el resultado esperaría en cola tras él.
+        messenger.removeCurrentSnackBar();
+        messenger.showSnackBar(SnackBar(content: Text(_steamSyncMessage(result))));
+    }
+  }
+
+  Future<void> _unlink() async {
+    var wipe = false;
+    if (_cubit.state.gameCount > 0) {
+      final fate = await _askLibraryFate(context, _cubit.state.gameCount, unlinking: true);
+      if (!mounted || fate == _LibraryFate.cancel) return;
+      wipe = fate == _LibraryFate.wipe;
+    }
+    await _cubit.unlinkSteamAccount(wipeLibrary: wipe);
+    if (mounted) Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final state = _cubit.state;
+
+    return AlertDialog(
+      title: const Text('Vincular cuenta de Steam'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            spacing: 12.0,
+            children: [
+              if (state.hasSteamAccount)
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: scheme.primary.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Row(
+                    spacing: 12,
+                    children: [
+                      Icon(Icons.account_circle, color: scheme.primary),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              state.steamPersona ?? state.steamId!,
+                              style: const TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            Text(
+                              [
+                                if (state.steamPersona != null) state.steamId!,
+                                if (state.steamSyncedAt case final ts?) 'Última importación: ${_formatEpoch(ts)}',
+                              ].join('\n'),
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              TextField(
+                controller: _profileCtrl,
+                autofocus: true,
+                decoration: InputDecoration(
+                  labelText: 'Perfil de Steam',
+                  hintText: 'URL, nombre personalizado o SteamID64',
+                  helperText: 'Cuenta de la que se importan los juegos.',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                ),
+              ),
+              TextField(
+                controller: _keyCtrl,
+                obscureText: _obscureKey,
+                decoration: InputDecoration(
+                  labelText: 'API key',
+                  helperText: 'Si es la clave de ese mismo perfil, incluye sus juegos privados.',
+                  helperMaxLines: 2,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                  suffixIcon: IconButton(
+                    icon: Icon(_obscureKey ? Icons.visibility_off : Icons.visibility, size: 20),
+                    tooltip: _obscureKey ? 'Mostrar' : 'Ocultar',
+                    onPressed: () => setState(() => _obscureKey = !_obscureKey),
+                  ),
+                ),
+              ),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  icon: const Icon(Icons.vpn_key, size: 16),
+                  label: const Text('Obtener una API key'),
+                  onPressed: () async {
+                    final uri = Uri.parse('https://steamcommunity.com/dev/apikey');
+                    if (await canLaunchUrl(uri)) await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  },
+                ),
+              ),
+              if (_error case final message?)
+                Text(message, style: TextStyle(color: scheme.error)),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _busy ? null : () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+        if (state.hasSteamAccount)
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: scheme.error),
+            onPressed: _busy ? null : _unlink,
+            child: const Text('Desvincular'),
+          ),
+        ListenableBuilder(
+          listenable: Listenable.merge([_profileCtrl, _keyCtrl]),
+          builder: (ctx, _) => ElevatedButton(
+            onPressed: _busy || _profileCtrl.text.trim().isEmpty || _keyCtrl.text.trim().isEmpty
+                ? null
+                : _link,
+            child: _busy
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Text('Vincular'),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 /// Abre el detalle de un juego. Dispara la auto-consulta de HLTB (efecto único de
@@ -211,6 +488,12 @@ class HomeView extends StatelessWidget {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Sincronizando datos de HLTB en segundo plano...')),
                 );
+              } else if (value == 'steam_link') {
+                showDialog(context: context, builder: (_) => const _SteamAccountDialog());
+              } else if (value == 'steam_sync') {
+                final messenger = ScaffoldMessenger.of(context);
+                final result = await context.read<HomeCubit>().syncSteamLibrary();
+                messenger.showSnackBar(SnackBar(content: Text(_steamSyncMessage(result))));
               } else if (value == 'esde_path') {
                 String? selectedDirectory = await FilePicker.getDirectoryPath();
                 if (selectedDirectory != null && context.mounted) {
@@ -221,16 +504,22 @@ class HomeView extends StatelessWidget {
                 }
               }
             },
-            itemBuilder: (context) => const [
-              PopupMenuItem(value: 'import', child: Text('Importar biblioteca')),
-              PopupMenuItem(value: 'export', child: Text('Exportar biblioteca')),
-              PopupMenuItem(value: 'clear', child: Text('Vaciar biblioteca')),
-              PopupMenuDivider(),
-              PopupMenuItem(value: 'update_gfn', child: Text('Sincronizar datos de GeForce NOW')),
-              PopupMenuItem(value: 'refetch_steam', child: Text('Sincronizar datos de Steam')),
-              PopupMenuItem(value: 'refetch_hltb', child: Text('Sincronizar datos de HLTB')),
-              PopupMenuDivider(),
-              PopupMenuItem(value: 'esde_path', child: Text('Vincular carpeta de ES-DE')),
+            itemBuilder: (context) => [
+              const PopupMenuItem(value: 'import', child: Text('Importar biblioteca')),
+              const PopupMenuItem(value: 'export', child: Text('Exportar biblioteca')),
+              const PopupMenuItem(value: 'clear', child: Text('Vaciar biblioteca')),
+              const PopupMenuDivider(),
+              const PopupMenuItem(value: 'update_gfn', child: Text('Sincronizar datos de GeForce NOW')),
+              const PopupMenuItem(value: 'refetch_steam', child: Text('Sincronizar datos de Steam')),
+              const PopupMenuItem(value: 'refetch_hltb', child: Text('Sincronizar datos de HLTB')),
+              const PopupMenuDivider(),
+              const PopupMenuItem(value: 'steam_link', child: Text('Vincular cuenta de Steam')),
+              PopupMenuItem(
+                value: 'steam_sync',
+                enabled: context.read<HomeCubit>().state.hasSteamAccount,
+                child: const Text('Importar biblioteca de Steam'),
+              ),
+              const PopupMenuItem(value: 'esde_path', child: Text('Vincular carpeta de ES-DE')),
             ],
           ),
         ],
@@ -252,7 +541,7 @@ class HomeView extends StatelessWidget {
             const Expanded(child: Center(child: CircularProgressIndicator(strokeWidth: 12)))
           else if (!hasGames)
             const Expanded(
-              child: Center(child: Text('No hay datos. Importa un JSON para comenzar.')),
+              child: Center(child: Text('No hay datos. Importa un JSON o vincula tu cuenta de Steam para comenzar.')),
             )
           else ...[
             const _SummaryText(),
@@ -524,6 +813,7 @@ class _SyncIndicator extends StatelessWidget {
     final isFetching = context.select((HomeCubit c) => c.state.isFetchingSteam);
     final isFetchingGfn = context.select((HomeCubit c) => c.state.isFetchingGfnDb);
     final isFetchingHltb = context.select((HomeCubit c) => c.state.isFetchingHltb);
+    final isSyncingLibrary = context.select((HomeCubit c) => c.state.isSyncingSteamLibrary);
     final pendingCount = context.select((HomeCubit c) => c.state.steamQueueSize);
     final pendingHltbCount = context.select((HomeCubit c) => c.state.hltbQueueSize);
 
@@ -531,6 +821,7 @@ class _SyncIndicator extends StatelessWidget {
       tooltip: [
         'Sincronizando:',
         if (isFetchingGfn) '• GeForce NOW: descargando catálogo',
+        if (isSyncingLibrary) '• Steam: leyendo la biblioteca de la cuenta',
         if (isFetching) '• Steam: $pendingCount pendientes',
         if (isFetchingHltb) '• HLTB: $pendingHltbCount pendientes',
       ].join('\n'),
@@ -559,7 +850,10 @@ class _CompactControls extends StatelessWidget {
     final sortBy = context.select((HomeCubit c) => c.state.sortBy);
     final sortAsc = context.select((HomeCubit c) => c.state.sortAsc);
     final isSyncing = context.select((HomeCubit c) =>
-        c.state.isFetchingSteam || c.state.isFetchingGfnDb || c.state.isFetchingHltb);
+        c.state.isFetchingSteam ||
+        c.state.isFetchingGfnDb ||
+        c.state.isFetchingHltb ||
+        c.state.isSyncingSteamLibrary);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -1025,6 +1319,8 @@ class _GameDialogProperties extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       spacing: 12.0,
       children: [
+        _GameSizeRow(gameId: gameId, fallback: fallback),
+
         if (p.spType == SpType.none)
           const _ReadOnlyRow(icon: Icons.person, label: "Solitario:", value: "Sin modo solitario")
         else
@@ -1084,6 +1380,98 @@ class _GameDialogProperties extends StatelessWidget {
             ],
             onChanged: (val) { if (val != null) update((g) => g.copyWith(vrSupport: val)); },
           ),
+      ],
+    );
+  }
+}
+
+// ── Peso editable ──
+/// Steam no publica el tamaño de instalación: lo importado desde la cuenta entra a 0
+/// bytes y se ajusta a mano con el mismo par cifra + unidad que el slider de la lista,
+/// conservando la cifra escrita al cambiar de unidad.
+class _GameSizeRow extends StatefulWidget {
+  final String gameId;
+  final Game fallback;
+  const _GameSizeRow({required this.gameId, required this.fallback});
+
+  @override
+  State<_GameSizeRow> createState() => _GameSizeRowState();
+}
+
+class _GameSizeRowState extends State<_GameSizeRow> {
+  late final HomeCubit _cubit = context.read<HomeCubit>();
+  final TextEditingController _ctrl = TextEditingController();
+  final FocusNode _focus = FocusNode();
+  late double _bytes = (_cubit.gameById(widget.gameId) ?? widget.fallback).sizeInBytes;
+
+  bool get _isBinary => _cubit.state.binaryFormat;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl.text = _formatUnitValue(_bytes, _isBinary);
+    _focus.addListener(() {
+      if (!_focus.hasFocus) _commit(_unitData(_bytes, _isBinary));
+    });
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    _focus.dispose();
+    super.dispose();
+  }
+
+  void _commit(({double divisor, String name}) unit) {
+    final isBinary = _isBinary;
+    final value = double.tryParse(_ctrl.text.replaceAll(',', '.'));
+    final newBytes = (value ?? _bytes / _unitData(_bytes, isBinary).divisor) * unit.divisor;
+
+    if (value != null && newBytes != _bytes) {
+      _cubit.updateGameSize(_cubit.gameById(widget.gameId) ?? widget.fallback, value, unit.name);
+    }
+    setState(() => _bytes = newBytes);
+    _ctrl.text = _formatUnitValue(newBytes, isBinary);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isBinary = context.select((HomeCubit c) => c.state.binaryFormat);
+    final unit = _unitData(_bytes, isBinary);
+    final valueStyle = Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold);
+
+    return Row(
+      spacing: 6,
+      children: [
+        const Icon(Icons.sd_storage, size: 18),
+        const Text('Peso:'),
+        Expanded(
+          child: TextField(
+            controller: _ctrl,
+            focusNode: _focus,
+            textAlign: TextAlign.end,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            style: valueStyle,
+            decoration: const InputDecoration(border: InputBorder.none, isCollapsed: true, hintText: '0'),
+            onSubmitted: (_) => _commit(unit),
+          ),
+        ),
+        DropdownButtonHideUnderline(
+          child: DropdownButton<({double divisor, String name})>(
+            value: unit,
+            isDense: true,
+            iconSize: 18,
+            borderRadius: BorderRadius.circular(6),
+            style: valueStyle,
+            items: [
+              for (final u in [_unitData(0, isBinary), _unitData(double.maxFinite, isBinary)])
+                DropdownMenuItem(value: u, child: Text(u.name)),
+            ],
+            onChanged: (newUnit) {
+              if (newUnit != null) _commit(newUnit);
+            },
+          ),
+        ),
       ],
     );
   }
@@ -2002,8 +2390,8 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
 
   @override
   Widget build(BuildContext context) {
-    // Nota: este build ya no se suscribe a estado volátil ni hace setState al teclear,
-    // por lo que se ejecuta una vez al abrir. Cada grupo hijo gestiona su propio rebuild.
+    // No se suscribe a estado volátil ni hace setState al teclear: se ejecuta una vez al
+    // abrir y cada grupo hijo gestiona su propio rebuild.
     return Padding(
       padding: EdgeInsets.only(
         left: 18.0, right: 18.0, top: 18.0,
@@ -2501,25 +2889,11 @@ class _SliderControlsState extends State<_SliderControls> {
   }
 
   void _updateTextFields(double minB, double maxB, bool isBinary) {
-    final minStr = _formatValue(minB, isBinary);
-    final maxStr = _formatValue(maxB, isBinary);
+    final minStr = _formatUnitValue(minB, isBinary);
+    final maxStr = _formatUnitValue(maxB, isBinary);
     if (minCtrl.text != minStr) minCtrl.text = minStr;
     if (maxCtrl.text != maxStr) maxCtrl.text = maxStr;
   }
-
-  static String _formatValue(double bytes, bool isBinary) {
-    final (:divisor, name: _) = _getUnitData(bytes, isBinary);
-    final val = bytes / divisor;
-    return val == val.toInt() ? val.toInt().toString() : val.toStringAsFixed(2);
-  }
-
-  static ({double divisor, String name}) _getUnitData(double bytes, bool isBinary) =>
-      switch ((isBinary, bytes >= (isBinary ? 1073741824.0 : 1000000000.0))) {
-        (true, true) => (divisor: 1073741824.0, name: "GiB"),
-        (true, false) => (divisor: 1048576.0, name: "MiB"),
-        (false, true) => (divisor: 1000000000.0, name: "GB"),
-        (false, false) => (divisor: 1000000.0, name: "MB"),
-      };
 
   void _submitManualEntry(TextEditingController ctrl, bool isMin, double unitDivisor) {
     _debounceTimer?.cancel();
@@ -2699,7 +3073,7 @@ class _SliderControlsState extends State<_SliderControls> {
   }
 
   Widget _buildEditableLimit(TextEditingController ctrl, FocusNode focus, bool isMin, double currentBytes, bool isBinary) {
-    final ud = _getUnitData(currentBytes, isBinary);
+    final ud = _unitData(currentBytes, isBinary);
     final double baseMB = isBinary ? 1048576.0 : 1000000.0;
     final double baseGB = isBinary ? 1073741824.0 : 1000000000.0;
 
