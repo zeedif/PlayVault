@@ -145,7 +145,8 @@ class SteamService {
           final games = [
             for (final raw in rawGames.whereType<Map>())
               if (int.tryParse(raw['appid']?.toString() ?? '') case final appId?)
-                (appId: appId, name: raw['name']?.toString()),
+                // Algunos nombres llegan con espacios de sobra (" Wanba Warriors").
+                (appId: appId, name: raw['name']?.toString().trim()),
           ];
           return games.isEmpty ? const SteamFail(SteamFailure.emptyLibrary) : SteamOk(games);
         }

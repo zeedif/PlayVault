@@ -162,6 +162,7 @@ class HomeState({
   final TriFilter steamCloudFilter = TriFilter.all,
   final TriFilter priceFilter = TriFilter.all,
   final TriFilter geforceNowFilter = TriFilter.all,
+  final TriFilter steamOwnershipFilter = TriFilter.all,
 
   // Slider — formato, distribución y límites
   final bool binaryFormat = false,
@@ -227,6 +228,7 @@ class HomeState({
     TriFilter? steamCloudFilter,
     TriFilter? priceFilter,
     TriFilter? geforceNowFilter,
+    TriFilter? steamOwnershipFilter,
     bool? binaryFormat,
     SliderDistribution? sliderDistribution,
     double? absoluteMinBytes,
@@ -266,6 +268,7 @@ class HomeState({
     steamCloudFilter: steamCloudFilter ?? this.steamCloudFilter,
     priceFilter: priceFilter ?? this.priceFilter,
     geforceNowFilter: geforceNowFilter ?? this.geforceNowFilter,
+    steamOwnershipFilter: steamOwnershipFilter ?? this.steamOwnershipFilter,
     binaryFormat: binaryFormat ?? this.binaryFormat,
     sliderDistribution: sliderDistribution ?? this.sliderDistribution,
     absoluteMinBytes: absoluteMinBytes ?? this.absoluteMinBytes,
@@ -310,6 +313,7 @@ class HomeState({
         other.steamCloudFilter == steamCloudFilter &&
         other.priceFilter == priceFilter &&
         other.geforceNowFilter == geforceNowFilter &&
+        other.steamOwnershipFilter == steamOwnershipFilter &&
         other.binaryFormat == binaryFormat &&
         other.sliderDistribution == sliderDistribution &&
         other.absoluteMinBytes == absoluteMinBytes &&
@@ -352,6 +356,7 @@ class HomeState({
     steamCloudFilter,
     priceFilter,
     geforceNowFilter,
+    steamOwnershipFilter,
     binaryFormat,
     sliderDistribution,
     absoluteMinBytes,
@@ -376,6 +381,9 @@ class HomeCubit extends Cubit<HomeState> {
 
   // Colas fire-and-forget: lista de internalIds pendientes + flag de worker activo.
   final List<String> _steamQueue = [];
+  // Confirmación de logros: `GetItems` los omite en bastantes fichas y `appdetails`,
+  // que sí los declara, solo acepta un appid por llamada.
+  final List<String> _achievementsQueue = [];
   bool _isSteamQueueRunning = false;
   final List<String> _hltbQueue = [];
   bool _isHltbQueueRunning = false;
@@ -496,6 +504,7 @@ class HomeCubit extends Cubit<HomeState> {
     'steamCloudFilter': s.steamCloudFilter.name,
     'priceFilter': s.priceFilter.name,
     'geforceNowFilter': s.geforceNowFilter.name,
+    'steamOwnershipFilter': s.steamOwnershipFilter.name,
     'sliderDistribution': s.sliderDistribution.name,
     'sortBy': s.sortBy,
     'sortAsc': s.sortAsc,
@@ -535,6 +544,7 @@ class HomeCubit extends Cubit<HomeState> {
       steamCloudFilter: TriFilter.values.byNameOrNull(profile['steamCloudFilter'] as String?) ?? current.steamCloudFilter,
       priceFilter: TriFilter.values.byNameOrNull(profile['priceFilter'] as String?) ?? current.priceFilter,
       geforceNowFilter: TriFilter.values.byNameOrNull(profile['geforceNowFilter'] as String?) ?? current.geforceNowFilter,
+      steamOwnershipFilter: TriFilter.values.byNameOrNull(profile['steamOwnershipFilter'] as String?) ?? current.steamOwnershipFilter,
       sliderDistribution: SliderDistribution.values.byNameOrNull(profile['sliderDistribution'] as String?) ?? current.sliderDistribution,
       sortBy: profile['sortBy'] as String? ?? current.sortBy,
       sortAsc: profile['sortAsc'] as bool? ?? current.sortAsc,
@@ -622,6 +632,7 @@ class HomeCubit extends Cubit<HomeState> {
         steamCloudFilter: TriFilter.values.byNameOrNull(settings['steamCloudFilter'] as String?),
         priceFilter: TriFilter.values.byNameOrNull(settings['priceFilter'] as String?),
         geforceNowFilter: TriFilter.values.byNameOrNull(settings['geforceNowFilter'] as String?),
+        steamOwnershipFilter: TriFilter.values.byNameOrNull(settings['steamOwnershipFilter'] as String?),
         sliderDistribution: SliderDistribution.values.byNameOrNull(settings['sliderDistribution'] as String?),
         sortBy: settings['sortBy'] as String?,
         sortAsc: settings['sortAsc'] as bool?,
@@ -911,6 +922,7 @@ class HomeCubit extends Cubit<HomeState> {
     }
     _gameFiles.clear();
     _steamQueue.clear();
+    _achievementsQueue.clear();
     _hltbQueue.clear();
     _writeChain.clear();
     _gamesById.clear();
@@ -947,11 +959,21 @@ class HomeCubit extends Cubit<HomeState> {
   Future<void> unlinkSteamAccount({bool wipeLibrary = false}) async {
     if (wipeLibrary) await _wipeAllGames();
     _steamApiKey = null;
-    var newState = state.copyWith(resetSteam: true);
-    if (wipeLibrary) newState = _applyFilters(_updateLimits(newState));
+    // La pertenencia deja de tener con qué contrastarse, así que se borra en lugar de
+    // conservar una marca que ya no responde a ninguna cuenta.
+    for (final game in _gamesById.values.toList()) {
+      if (game.isOwnedOnSteam != null) _applyQueuePatch(game, {'is_owned_on_steam': null});
+    }
+    var newState = state.copyWith(resetSteam: true, steamOwnershipFilter: TriFilter.all);
+    newState = _applyFilters(wipeLibrary ? _updateLimits(newState) : newState);
     emit(newState);
     await _saveLocalState(newState);
   }
+
+  /// Si el filtro de pertenencia tiene algo que separar: hace falta una cuenta vinculada
+  /// y que la sincronización haya llegado a marcar algún juego.
+  bool get hasSteamOwnershipData =>
+      state.steamId != null && _gamesById.values.any((g) => g.isOwnedOnSteam != null);
 
   /// Trae la biblioteca de la cuenta vinculada y añade lo que falte: los appids ya
   /// rastreados se omiten (conservan sus datos) y los nuevos entran solo con appid y
@@ -976,6 +998,7 @@ class HomeCubit extends Cubit<HomeState> {
               if (!tracked.contains(appId)) <String, dynamic>{'id_steam': appId, 'name': ?name},
           ];
           final syncedAt = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+          _markSteamOwnership({for (final (:appId, name: _) in value) appId});
 
           if (_planFrom(rawList, replace: false, preserveExisting: true) case ReadyImport(:final plan)) {
             emit(state.copyWith(isSyncingSteamLibrary: false, steamSyncedAt: syncedAt));
@@ -995,6 +1018,21 @@ class HomeCubit extends Cubit<HomeState> {
       }
     }
     return const SteamSyncFailed(SteamFailure.notLinked);
+  }
+
+  /// Marca qué juegos siguen en la cuenta contrastando sus appids contra [ownedAppIds],
+  /// en memoria y sin peticiones. Solo se escribe el juego cuyo valor cambia, así que una
+  /// biblioteca estable no toca disco por muchas entradas que tenga la cuenta.
+  ///
+  /// Nada se borra: la biblioteca también admite juegos añadidos a mano, así que uno que
+  /// desaparece de la cuenta (un reembolso) queda marcado, no eliminado.
+  void _markSteamOwnership(Set<int> ownedAppIds) {
+    for (final game in _gamesById.values.toList()) {
+      if (game.idSteam case final appId?) {
+        final owned = ownedAppIds.contains(appId);
+        if (game.isOwnedOnSteam != owned) _applyQueuePatch(game, {'is_owned_on_steam': owned});
+      }
+    }
   }
 
   // ─── GEFORCE NOW API & DB QUEUE ───
@@ -1166,131 +1204,182 @@ class HomeCubit extends Cubit<HomeState> {
     priority ? _steamQueue.insert(0, internalId) : _steamQueue.add(internalId);
   }
 
-  /// Procesa la cola de Steam de forma secuencial: obtiene metadatos via `GetItems/v1`,
-  /// aplica el parche con `_buildSteamPatch` y espera 1.5 s entre llamadas.
-  /// Un 429 re-encola el ID actual y pausa 60 s antes de continuar.
+  /// Appids por llamada a `GetItems/v1`. La API corta por encima de 250, así que el lote
+  /// se queda por debajo para dejar margen a appids de más dígitos.
+  static const int _steamBatchSize = 200;
+
+  /// Procesa la cola de Steam por lotes: pide los metadatos de hasta [_steamBatchSize]
+  /// juegos en una sola llamada a `GetItems/v1` y aplica todos los parches en un emit.
+  /// Los juegos cuyo lote no declara logros pasan a [_achievementsQueue], que los
+  /// confirma de uno en uno. Un 429 devuelve el lote a la cola y pausa 60 s.
   Future<void> _startSteamQueue() async {
     if (_isSteamQueueRunning) return;
     _isSteamQueueRunning = true;
-    emit(state.copyWith(steamQueueSize: _steamQueue.length));
+    _emitSteamProgress();
 
     final client = HttpClient();
 
-    while (_steamQueue.isNotEmpty) {
-      final internalId = _steamQueue.removeAt(0);
-      final game = _gamesById[internalId];
-      // El juego pudo eliminarse (biblioteca vaciada) o no tener appid: se salta.
-      if (game == null || game.idSteam == null) {
-        emit(state.copyWith(steamQueueSize: _steamQueue.length));
-        continue;
-      }
-      final idSteam = game.idSteam!;
-
-      final isRefetch = game.hasFetchedSteam;
-      final needsFetch = isRefetch ||
-          game.name == null ||
-          game.isSoftware == null ||
-          game.isFree == null ||
-          game.hasSpanish == null ||
-          game.spType == null ||
-          game.hasSteamCloud == null ||
-          game.vrSupport == null ||
-          game.matchmaking == null ||
-          game.friendPlay == null ||
-          game.hasAchievements == null;
-
-      if (!needsFetch) {
-        _applyQueuePatch(game, {'has_fetched_steam': true});
-        emit(_applyFilters(state.copyWith(steamQueueSize: _steamQueue.length)));
-        continue;
-      }
-
-      try {
-        final inputJson = jsonEncode({
-          'context': {'language': 'spanish', 'country_code': 'US'},
-          'data_request': {'include_basic_info': true, 'include_supported_languages': true},
-          'ids': [{'appid': idSteam}],
-        });
-        final uri = Uri.parse('https://api.steampowered.com/IStoreBrowseService/GetItems/v1?input_json=${Uri.encodeComponent(inputJson)}');
-        final response = await (await client.getUrl(uri)).close();
-
-        if (response.statusCode == 200) {
-          final payload = jsonDecode(await response.transform(utf8.decoder).join());
-          final storeItems = payload['response']?['store_items'];
-          if (storeItems is List && storeItems.isNotEmpty) {
-            final item = storeItems.first as Map<String, dynamic>;
-            // Otro worker pudo actualizar el juego, o pudo eliminarse, mientras
-            // esperábamos la respuesta. Si no existe, se descarta sin reañadirlo.
-            final freshGame = _gamesById[internalId];
-            if (freshGame == null) continue;
-            if (item['success'] == 1) {
-              final patch = _buildSteamPatch(freshGame, item, isRefetch);
-
-              // Fallback de logros: si la API nueva dice que no hay, se verifica con la antigua.
-              if (patch['has_achievements'] == false) {
-                try {
-                  final fallbackUri = Uri.parse('https://store.steampowered.com/api/appdetails?appids=$idSteam&filters=achievements');
-                  final fallbackReq = await client.getUrl(fallbackUri);
-                  final fallbackRes = await fallbackReq.close();
-                  
-                  if (fallbackRes.statusCode == 200) {
-                    final fallbackData = jsonDecode(await fallbackRes.transform(utf8.decoder).join());
-                    if (fallbackData[idSteam.toString()] case {
-                          'success': true,
-                          'data': {
-                            'achievements': {'total': int total}
-                          }
-                        } when total > 0) {
-                      patch['has_achievements'] = true;
-                    }
-                  } else {
-                    // Si el fallback falla (ej. 429), se drena en silencio.
-                    await fallbackRes.drain();
-                  }
-                } catch (e) {
-                  debugPrint('Error en fallback de logros para $idSteam: $e');
-                }
-              }
-
-              _applyQueuePatch(freshGame, patch);
-            } else {
-              _applyQueuePatch(freshGame, {'has_fetched_steam': true});
-            }
+    try {
+      // Los logros se confirman después de los lotes pero dentro del bucle, para que un
+      // juego encolado mientras se drenan entre en el siguiente lote.
+      while (_steamQueue.isNotEmpty || _achievementsQueue.isNotEmpty) {
+        if (_steamQueue.isEmpty) {
+          await _drainAchievementsQueue(client);
+          continue;
+        }
+        // Los juegos que ya tienen todos los campos se resuelven sin red.
+        final batch = <String, Game>{};
+        while (_steamQueue.isNotEmpty && batch.length < _steamBatchSize) {
+          final internalId = _steamQueue.removeAt(0);
+          final game = _gamesById[internalId];
+          // El juego pudo eliminarse (biblioteca vaciada) o no tener appid: se salta.
+          if (game == null || game.idSteam == null) continue;
+          if (_needsSteamFetch(game)) {
+            batch[internalId] = game;
           } else {
             _applyQueuePatch(game, {'has_fetched_steam': true});
           }
-        } else if (response.statusCode == 429) {
-          await response.drain();
-          _steamQueue.insert(0, internalId);
-          emit(state.copyWith(steamQueueSize: _steamQueue.length));
-          await Future.delayed(const Duration(seconds: 60));
+        }
+        if (batch.isEmpty) {
+          _emitSteamProgress();
           continue;
+        }
+
+        final byAppId = {for (final e in batch.entries) e.value.idSteam!: e.key};
+        final inputJson = jsonEncode({
+          'context': {'language': 'spanish', 'country_code': 'US'},
+          'data_request': {'include_basic_info': true, 'include_supported_languages': true},
+          'ids': [for (final appId in byAppId.keys) {'appid': appId}],
+        });
+        final uri = Uri.parse(
+          'https://api.steampowered.com/IStoreBrowseService/GetItems/v1?input_json=${Uri.encodeComponent(inputJson)}',
+        );
+
+        final List items;
+        try {
+          final response = await (await client.getUrl(uri)).close();
+          if (response.statusCode == 429) {
+            await response.drain();
+            _steamQueue.insertAll(0, batch.keys);
+            _emitSteamProgress();
+            await Future.delayed(const Duration(seconds: 60));
+            continue;
+          }
+          if (response.statusCode != 200) {
+            await response.drain();
+            // La tanda no se puede resolver: se marca vista para no reintentarla en bucle.
+            for (final game in batch.values) {
+              _applyQueuePatch(game, {'has_fetched_steam': true});
+            }
+            _emitSteamProgress();
+            continue;
+          }
+          final payload = jsonDecode(await response.transform(utf8.decoder).join());
+          items = payload['response']?['store_items'] as List? ?? const [];
+        } catch (e) {
+          debugPrint('Steam API error de red: $e');
+          // Los juegos del lote vuelven a la cola: el fallo es de red, no del dato.
+          _steamQueue.insertAll(0, batch.keys);
+          break;
+        }
+
+        for (final item in items.whereType<Map<String, dynamic>>()) {
+          final internalId = byAppId[item['appid']];
+          // Otro worker pudo actualizar el juego, o pudo eliminarse, mientras
+          // esperábamos la respuesta. Si no existe, se descarta sin reañadirlo.
+          final freshGame = internalId == null ? null : _gamesById[internalId];
+          if (freshGame == null) continue;
+
+          if (item['success'] != 1) {
+            _applyQueuePatch(freshGame, {'has_fetched_steam': true});
+            continue;
+          }
+          final patch = _buildSteamPatch(freshGame, item, freshGame.hasFetchedSteam);
+          _applyQueuePatch(freshGame, patch);
+          if (patch['has_achievements'] == false) _achievementsQueue.add(internalId!);
+        }
+
+        // Un appid que la API no devuelve queda marcado igual para no repetir el lote.
+        for (final internalId in batch.keys) {
+          if (_gamesById[internalId] case final pending? when !pending.hasFetchedSteam) {
+            _applyQueuePatch(pending, {'has_fetched_steam': true});
+          }
+        }
+
+        emit(_applyFilters(state.copyWith(steamQueueSize: _pendingSteamCount)));
+        await Future.delayed(const Duration(milliseconds: 1500));
+      }
+    } finally {
+      client.close();
+      _isSteamQueueRunning = false;
+      emit(_applyFilters(state.copyWith(steamQueueSize: _pendingSteamCount)));
+    }
+  }
+
+  /// Confirma los logros contra `appdetails`, que solo acepta un appid por llamada, y
+  /// cede en cuanto haya lotes pendientes porque rinden mucho más por petición.
+  /// Un fallo deja el valor que dio `GetItems`.
+  Future<void> _drainAchievementsQueue(HttpClient client) async {
+    while (_achievementsQueue.isNotEmpty && _steamQueue.isEmpty) {
+      final internalId = _achievementsQueue.removeAt(0);
+      final game = _gamesById[internalId];
+      if (game?.idSteam == null) continue;
+      final appId = game!.idSteam!;
+
+      try {
+        final response = await (await client.getUrl(Uri.parse(
+          'https://store.steampowered.com/api/appdetails?appids=$appId&filters=achievements',
+        ))).close();
+        if (response.statusCode != 200) {
+          await response.drain(); // un 429 aquí no merece pausar la cola entera
         } else {
-          await response.drain();
-          _applyQueuePatch(game, {'has_fetched_steam': true});
+          // La respuesta viene indexada por el appid consultado.
+          final decoded = jsonDecode(await response.transform(utf8.decoder).join());
+          final entry = decoded is Map ? decoded['$appId'] : null;
+          if (entry case {
+            'success': true,
+            'data': {'achievements': {'total': final int total}},
+          } when total > 0) {
+            _applyQueuePatch(game, {'has_achievements': true});
+          }
         }
       } catch (e) {
-        debugPrint('Steam API error de red: $e');
-        emit(state.copyWith(steamQueueSize: 0));
-        break;
+        debugPrint('Error en fallback de logros para $appId: $e');
       }
 
-      emit(_applyFilters(state.copyWith(steamQueueSize: _steamQueue.length)));
-      await Future.delayed(const Duration(milliseconds: 1500));
+      emit(_applyFilters(state.copyWith(steamQueueSize: _pendingSteamCount)));
+      await Future.delayed(const Duration(milliseconds: 1200));
     }
-
-    client.close();
-    _isSteamQueueRunning = false;
-    emit(_applyFilters(state.copyWith(steamQueueSize: 0)));
   }
+
+  /// Un juego se consulta si se pidió refrescarlo o si le falta algún campo de Steam.
+  bool _needsSteamFetch(Game game) =>
+      game.hasFetchedSteam ||
+      game.name == null ||
+      game.isSoftware == null ||
+      game.isFree == null ||
+      game.hasSpanish == null ||
+      game.spType == null ||
+      game.hasSteamCloud == null ||
+      game.vrSupport == null ||
+      game.matchmaking == null ||
+      game.friendPlay == null ||
+      game.hasAchievements == null;
+
+  int get _pendingSteamCount => _steamQueue.length + _achievementsQueue.length;
+
+  void _emitSteamProgress() => emit(state.copyWith(steamQueueSize: _pendingSteamCount));
 
   /// Construye el parche Steam a partir de la respuesta de la API. Sin efectos secundarios.
   /// El caller decide si hace emit y cuándo (permite batching en la cola).
   Map<String, dynamic> _buildSteamPatch(Game game, Map<String, dynamic> item, bool isRefetch) {
     final patch = <String, dynamic>{'has_fetched_steam': true};
 
-    final name = item['name']?.toString();
-    if (name != null && (game.name == null || Game.normalizeIdName(game.name) == Game.normalizeIdName(name))) patch['name'] = name;
+    // La tienda publica algunos nombres con espacios de sobra (" Wanba Warriors").
+    final name = item['name']?.toString().trim();
+    if (name != null && name.isNotEmpty && (game.name == null || Game.normalizeIdName(game.name) == Game.normalizeIdName(name))) {
+      patch['name'] = name;
+    }
 
     if (item['type'] is int) patch['is_software'] = isRefetch ? (item['type'] != 0) : (game.isSoftware ?? (item['type'] != 0));
 
@@ -1401,27 +1490,33 @@ class HomeCubit extends Cubit<HomeState> {
       try {
         final knownId = game.hltbStats?.id;
         // Reutiliza el resultado cacheado por id conocido; si no, consulta a HLTB.
-        final fetchedData = (knownId != null ? sessionCache[knownId] : null) ??
-            await HltbService.fetchGameStats(
+        final lookup = switch (knownId != null ? sessionCache[knownId] : null) {
+          final HltbStats cached => HltbFound(cached),
+          _ => await HltbService.fetchGameStats(
               game.name,
               knownId,
               game.idSteam?.toString(),
               game.hltbFetchedAt != null,
-            );
-        // Solo sellamos la marca de tiempo en un fetch exitoso. Un resultado nulo
-        // (sin datos o fallo de red) deja hltbFetchedAt intacto para reintentar
-        // en el siguiente ciclo (resiliencia pasiva).
-        if (fetchedData != null) {
-          if (fetchedData.id case final fid?) sessionCache[fid] = fetchedData;
-          // El juego pudo actualizarse o eliminarse mientras esperábamos la respuesta:
-          // se aplica solo si sigue existiendo (_applyQueuePatch también lo verifica).
-          final freshGame = _gamesById[internalId];
-          if (freshGame != null) {
-            _applyQueuePatch(freshGame, {
-              'hltb_stats': fetchedData.toJson(),
-              'hltb_fetched_at': DateTime.now().millisecondsSinceEpoch ~/ 1000,
-            });
-          }
+            ),
+        };
+
+        // El juego pudo actualizarse o eliminarse mientras esperábamos la respuesta:
+        // se aplica solo si sigue existiendo (_applyQueuePatch también lo verifica).
+        final freshGame = _gamesById[internalId];
+        final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+        switch (lookup) {
+          case HltbFound(:final stats):
+            if (stats.id case final fid?) sessionCache[fid] = stats;
+            if (freshGame != null) {
+              _applyQueuePatch(freshGame, {'hltb_stats': stats.toJson(), 'hltb_fetched_at': now});
+            }
+          // HLTB respondió y no lo tiene: se sella la fecha igual, para no repetir la
+          // búsqueda en cada arranque.
+          case HltbNotFound():
+            if (freshGame != null) _applyQueuePatch(freshGame, {'hltb_fetched_at': now});
+          // No se pudo preguntar: se deja sin sellar para reintentar en el próximo ciclo.
+          case HltbUnavailable():
+            break;
         }
       } catch (e) {
         debugPrint('HLTB Error general: $e');
@@ -1497,6 +1592,7 @@ class HomeCubit extends Cubit<HomeState> {
     // Vaciar las colas ANTES de tocar disco: corta el trabajo pendiente de inmediato
     // para que ningún worker vuelva a registrar un juego recién eliminado.
     _steamQueue.clear();
+    _achievementsQueue.clear();
     _hltbQueue.clear();
     final file = await _localFile;
     if (await file.exists()) await file.delete();
@@ -1537,6 +1633,7 @@ class HomeCubit extends Cubit<HomeState> {
     TriFilter? steamCloudFilter,
     TriFilter? priceFilter,
     TriFilter? geforceNowFilter,
+    TriFilter? steamOwnershipFilter,
     SliderDistribution? sliderDistribution,
     String? esDePath,
     int? refreshIntervalDays,
@@ -1561,6 +1658,7 @@ class HomeCubit extends Cubit<HomeState> {
       steamCloudFilter: steamCloudFilter,
       priceFilter: priceFilter,
       geforceNowFilter: geforceNowFilter,
+      steamOwnershipFilter: steamOwnershipFilter,
       sliderDistribution: sliderDistribution,
       esDePath: esDePath,
       refreshIntervalDays: refreshIntervalDays,
@@ -1723,6 +1821,9 @@ class HomeCubit extends Cubit<HomeState> {
       if (s.priceFilter == TriFilter.no && g.isFree == true) return false;
       if (s.geforceNowFilter == TriFilter.yes && g.isGeforceNow != true) return false;
       if (s.geforceNowFilter == TriFilter.no && g.isGeforceNow == true && g.language != GameLanguage.patched) return false;
+      // Sin marcar (null) no se afirma nada, así que queda fuera de los dos lados.
+      if (s.steamOwnershipFilter == TriFilter.yes && g.isOwnedOnSteam != true) return false;
+      if (s.steamOwnershipFilter == TriFilter.no && g.isOwnedOnSteam != false) return false;
       if (!s.visibleLanguages.contains(g.language)) return false;
       if (!s.visibleStatuses.contains(g.status)) return false;
       if (g.sizeInBytes < s.currentMinBytes || g.sizeInBytes > s.currentMaxBytes) return false;

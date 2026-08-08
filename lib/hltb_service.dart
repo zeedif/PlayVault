@@ -101,6 +101,28 @@ typedef _HltbSearchHit = ({
 
 class _HltbCandidate({required final String id, required final int score});
 
+/// Desenlace de una consulta a HLTB. Separa "no está catalogado" de "no se pudo
+/// preguntar": lo primero es definitivo y lo segundo merece reintento.
+sealed class HltbLookup {
+  const HltbLookup();
+}
+
+/// Ficha encontrada y aceptada.
+final class HltbFound extends HltbLookup {
+  final HltbStats stats;
+  const HltbFound(this.stats);
+}
+
+/// La búsqueda funcionó y ningún candidato correspondía al juego.
+final class HltbNotFound extends HltbLookup {
+  const HltbNotFound();
+}
+
+/// No se pudo consultar (red caída, límite de ritmo o token rechazado).
+final class HltbUnavailable extends HltbLookup {
+  const HltbUnavailable();
+}
+
 class HltbService {
   static const String _baseUrl = 'https://howlongtobeat.com';
   static String _currentEndpoint = '/api/bleed';
@@ -157,6 +179,36 @@ class HltbService {
 
   static final _edgePunctuation = RegExp(r'(?<=^|\s)[^\w\s]+|[^\w\s]+(?=\s|$)');
 
+  static final _chapterAbbreviation = RegExp(r'\bch\.\s*(?=\d)', caseSensitive: false);
+
+  /// Ordinales romanos en mayúsculas y de dos letras o más. `I`, `V` y `X` sueltas quedan
+  /// fuera: son el pronombre inglés y letras de título ("Re;Birth3 V Generation").
+  static const _romanNumerals = {
+    'XVIII': '18', 'XVII': '17', 'XVI': '16', 'XIX': '19', 'XIV': '14', 'XIII': '13',
+    'XII': '12', 'XX': '20', 'XV': '15', 'XI': '11', 'VIII': '8', 'VII': '7', 'VI': '6',
+    'III': '3', 'II': '2', 'IV': '4', 'IX': '9',
+  };
+
+  // Alternativa ordenada de más larga a más corta para que gane la coincidencia completa.
+  static final _romanNumeral =
+      RegExp(r'\b(?:XVIII|XVII|XVI|XIX|XIV|XIII|XII|XX|XV|XI|VIII|VII|VI|III|II|IV|IX)\b');
+
+  static final _interiorHyphen = RegExp(r'(?<=\w)-(?=\w)');
+
+  static final _digitPunctuationBoundary =
+      RegExp(r'(?<=[0-9])(?=[^0-9\sa-z])|(?<=[^0-9\sa-z])(?=[0-9])');
+
+  /// Calificativo de edición al final del título. `collection` y `bundle` valen sueltos:
+  /// "Sonic & All-Stars Racing Transformed Collection" solo aparece sin esa palabra.
+  static final _editionSuffix = RegExp(
+    r'\s*(?:[-:,]\s*)?(?:the\s+)?'
+    r'(?:goty|game\s+of\s+the\s+year|deluxe|complete|definitive|enhanced|remastered|'
+    r'remaster|ultimate|anniversary|special|extended|gold|premium|legendary|legacy|'
+    r'collection|bundle)'
+    r'(?:\s+(?:edition|remaster|remastered|collection|bundle))?\s*$',
+    caseSensitive: false,
+  );
+
   /// Tipos de ficha que nunca corresponden a una entrada de la biblioteca: el appid
   /// apunta al juego, no a su contenido descargable ni a un mod.
   static const Set<String> _secondaryTypes = {'dlc', 'mod'};
@@ -187,7 +239,7 @@ class HltbService {
   /// "Fatal Frame: Mask of the Lunar Eclipse" con "Project Zero: …" de alias).
   static Set<String> _targetKeys(String rawName) {
     final base = rawName.replaceAll(_yearTag, ' ');
-    final keys = {nameKey(base)};
+    final keys = {nameKey(base), nameKey(base.replaceAll(_editionSuffix, ''))};
     if (_alternateTitle.hasMatch(base)) {
       keys..add(nameKey(base.replaceAll(_alternateTitle, '')))
         ..add(nameKey(base.replaceFirst(_leadingTitle, '')));
@@ -220,15 +272,38 @@ class HltbService {
     final noTags = spacedDigits.replaceAll(RegExp(r'[\(\[][^\)\]]*[\)\]]'), ' ');
     add(noTags);
 
+    // 3b. Con la abreviatura desarrollada: "Higurashi … - Ch.3 …" solo aparece buscando
+    //     "Chapter 3". Las variantes siguientes parten de aquí.
+    final expanded = noTags.replaceAll(_chapterAbbreviation, 'Chapter ');
+    add(expanded);
+
     // 4. Sin el título alternativo que precede al subtítulo, la convención de los
     //    lanzamientos japoneses con doble nombre: HLTB solo cataloga uno de los dos.
     //    "FATAL FRAME / PROJECT ZERO: Mask of the Lunar Eclipse" → "FATAL FRAME: Mask…".
-    add(noTags.replaceAll(_alternateTitle, ''));
+    add(expanded.replaceAll(_alternateTitle, ''));
 
     // 5. Sin la puntuación decorativa, la que toca un espacio o un extremo. Solo cae el
     //    adorno de la tienda ("Syberia - Remastered", "-HD … ReMIX-"); la puntuación
     //    interna de "f.e.a.r." o "STEINS;GATE" queda intacta y sigue acotando igual.
-    add(noTags.replaceAll(_edgePunctuation, ' '));
+    add(expanded.replaceAll(_edgePunctuation, ' '));
+
+    // 6. Con el número despegado también de la puntuación: "vol.1" → "vol. 1" y
+    //    "Soul Reaver 1&2" → "1 & 2", que es como HLTB los tiene escritos.
+    add(expanded.replaceAllMapped(_digitPunctuationBoundary, (_) => ' '));
+
+    // 7. Sin el calificativo de edición: "DISTRAINT: Deluxe Edition" → "DISTRAINT". Va
+    //    tarde porque hay ediciones que sí son la ficha ("Sleeping Dogs: Definitive
+    //    Edition"), y esas casan antes en la forma literal.
+    add(expanded.replaceAll(_editionSuffix, ''));
+
+    // 8. Con el guion interior en espacio y el decorativo fuera, para el subtítulo
+    //    envuelto en guiones: "Record of Lodoss War-Deedlit in Wonder Labyrinth-".
+    add(expanded.replaceAll(_interiorHyphen, ' ').replaceAll(_edgePunctuation, ' '));
+
+    // 9. Con los ordinales en cifras, como HLTB los guarda en los alias: "Etrian Odyssey
+    //    II HD" solo aparece buscando "Etrian Odyssey 2 HD". La última porque a la inversa
+    //    estropea a los que sí están catalogados en romanos.
+    add(expanded.replaceAllMapped(_romanNumeral, (m) => _romanNumerals[m[0]]!));
 
     // Descartados por imprecisos, no por inútiles: ambos amplían tanto el resultado que
     // la ficha correcta se cae de la primera página.
@@ -242,9 +317,25 @@ class HltbService {
     return variants;
   }
 
-  static Future<HltbStats?> fetchGameStats(String? gameName, String? knownId, String? steamId, bool isRefetch) async {
+  /// La ficha señala a otro juego: ambos lados declaran appid de Steam y no es el mismo.
+  /// El nombre no vale entonces como prueba, por exacto que sea: "Dark Days" es el juego
+  /// de 2016 (422020) y también el de 2024 (2856570), con una ficha cada uno.
+  /// Si alguno de los dos no declara appid no hay contradicción y decide el nombre.
+  static bool _contradictsSteamId(HltbStats stats, String? steamId) =>
+      steamId != null && stats.hasSteamId && !stats.matchesSteamId(steamId);
+
+  /// Busca la ficha de [gameName] en HLTB. Con [knownId] se consulta ese id directamente y
+  /// solo se revalida si [isRefetch]; en caso contrario se recorren las variantes de título
+  /// y se acepta el candidato que case por appid de Steam o por nombre exacto.
+  ///
+  /// Devuelve [HltbNotFound] cuando la búsqueda funcionó y el juego no está catalogado, y
+  /// [HltbUnavailable] cuando no se pudo preguntar; el caller decide con eso si reintenta.
+  static Future<HltbLookup> fetchGameStats(String? gameName, String? knownId, String? steamId, bool isRefetch) async {
+    // Si alguna petición se queda sin respuesta, un resultado vacío no prueba la ausencia.
+    var reachedHltb = true;
     try {
       await _initializeAuth();
+      if (_authHeaders == null) return const HltbUnavailable();
       final rawName = gameName ?? '';
       // El año que Steam añade entre paréntesis no forma parte del nombre en HLTB, así que
       // se saca de la clave y pasa a ordenar candidatos: sin esto "Resident Evil 4 (2005)"
@@ -258,54 +349,65 @@ class HltbService {
       // Si ya conocemos el ID, lo consultamos directamente
       if (knownId != null) {
         final stats = await _fetchGameDetails(knownId);
-        // Si el ID conocido devolvió null (por caída de red, etc.),
-        // devolver null para conservar el ID y estadísticas previas.
-        if (stats == null) return null;
+        // Un id conocido que no responde es un fallo de consulta, no una ficha retirada:
+        // se conservan el id y las estadísticas previas.
+        if (stats == null) return const HltbUnavailable();
         // Si NO es un refetch (ej. importación o carga), asumimos que el ID es correcto y terminamos.
-        if (!isRefetch) return stats;
+        if (!isRefetch) return HltbFound(stats);
 
         // Si ES un refetch, validamos rigurosamente para ver si este ID sigue siendo nuestro mejor candidato
-        final isSteamMismatch = steamId != null && stats.hasSteamId && !stats.matchesSteamId(steamId);
-        if (!isSteamMismatch || isExactNameMatch(stats)) return stats;
+        if (!_contradictsSteamId(stats, steamId)) return HltbFound(stats);
         // Si resultó NO ser válido, dejamos que el código proceda al flujo normal de búsqueda más abajo.
       }
 
-      // De lo contrario, buscamos los IDs candidatos ordenados por relevancia.
-      // Se prueban variantes de título progresivamente más laxas hasta que una devuelva
-      // candidatos: así un tag entre paréntesis o un subtítulo no dejan la búsqueda en cero.
-      List<_HltbCandidate> candidates = const [];
-      for (final variant in _buildSearchVariants(rawName)) {
-        candidates = _rankHits(await _searchHits(variant), nameKey(variant), targetKeys, wantedYear);
-        if (candidates.isNotEmpty) break;
-      }
-      if (candidates.isEmpty) return null;
-
+      // Se recorren las variantes de la más literal a la más laxa. Que una devuelva
+      // candidatos no termina la búsqueda si ninguno es aceptable: "FINAL FANTASY VIII -
+      // REMASTERED" encuentra un pack recopilatorio, y solo la variante sin el
+      // calificativo da con el juego. El presupuesto de fichas es común a todas, así que
+      // un título inexistente cuesta [_maxDetailProbes] descargas como mucho.
       HltbStats? exactNameFallback;
+      var probesLeft = _maxDetailProbes;
 
-      for (final candidate in candidates.take(_maxDetailProbes)) {
-        final stats = await _fetchGameDetails(candidate.id);
-        if (stats == null) continue;
-
-        // 1. Prioridad absoluta: Coincidencia exacta de Steam ID.
-        if (stats.matchesSteamId(steamId)) return stats;
-
-        // 2. Coincidencia exacta de nombre.
-        if (isExactNameMatch(stats)) {
-          // Si no tenemos un Steam ID, el primer nombre exacto es nuestra mejor opción.
-          if (steamId == null) return stats;
-
-          // Si tenemos un Steam ID, reservamos esta coincidencia de nombre exacta por si
-          // ninguno de los siguientes candidatos tiene el Steam ID buscado.
-          exactNameFallback ??= stats;
+      for (final variant in _buildSearchVariants(rawName)) {
+        if (probesLeft == 0) break;
+        final hits = await _searchHits(variant);
+        if (hits == null) {
+          reachedHltb = false;
+          continue;
         }
-        // 3. Si no hay coincidencia de Steam ID ni de nombre exacto, simplemente continuamos iterando.
+        final candidates = _rankHits(hits, nameKey(variant), targetKeys, wantedYear);
+
+        for (final candidate in candidates) {
+          if (probesLeft == 0) break;
+          probesLeft--;
+          final stats = await _fetchGameDetails(candidate.id);
+          if (stats == null) {
+            reachedHltb = false;
+            continue;
+          }
+
+          // 1. Prioridad absoluta: Coincidencia exacta de Steam ID.
+          if (stats.matchesSteamId(steamId)) return HltbFound(stats);
+
+          // 2. Coincidencia exacta de nombre, solo si la ficha no señala a otro juego.
+          if (isExactNameMatch(stats) && !_contradictsSteamId(stats, steamId)) {
+            // Si no tenemos un Steam ID, el primer nombre exacto es nuestra mejor opción.
+            if (steamId == null) return HltbFound(stats);
+
+            // Si tenemos un Steam ID, reservamos esta coincidencia de nombre exacta por si
+            // ninguno de los siguientes candidatos tiene el Steam ID buscado.
+            exactNameFallback ??= stats;
+          }
+          // 3. Si no hay coincidencia de Steam ID ni de nombre exacto, seguimos iterando.
+        }
       }
 
-      // Retorna el fallback si hubo coincidencia exacta de nombre, o null si todo falló.
-      return exactNameFallback;
+      // Sin coincidencia por nombre, solo se declara ausente si todo llegó a responder.
+      if (exactNameFallback case final stats?) return HltbFound(stats);
+      return reachedHltb ? const HltbNotFound() : const HltbUnavailable();
     } catch (e) {
       debugPrint('HLTB Error: $e');
-      return null;
+      return const HltbUnavailable();
     }
   }
 
@@ -411,8 +513,9 @@ class HltbService {
     }
   }
 
-  /// [query] debe venir ya pasado por [_searchQuery]
-  static Future<List<_HltbSearchHit>> _searchHits(String query) async {
+  /// [query] debe venir ya pasado por [_searchQuery]. Devuelve null si la búsqueda no
+  /// llegó a responder, que no es lo mismo que una lista vacía.
+  static Future<List<_HltbSearchHit>?> _searchHits(String query) async {
     if (_searchCache[query] case final cached?) return cached;
 
     var body = await _postSearch(query);
@@ -424,10 +527,10 @@ class HltbService {
       await _initializeAuth();
       body = await _postSearch(query);
     }
-    if (body == null) return const [];
+    if (body == null) return null;
 
     final data = jsonDecode(body)['data'] as List?;
-    if (data == null) return const [];
+    if (data == null) return null;
 
     final hits = <_HltbSearchHit>[
       for (final item in data.whereType<Map>())
@@ -525,8 +628,9 @@ class HltbService {
     // El año entre paréntesis del título es lo único que separa una reedición de su
     // original ("Resident Evil 4 (2005)" frente al remake de 2023).
     if (wantedYear != 0 && hit.year == wantedYear) score += 200;
-    // A igualdad, primero la ficha con más partidas registradas: es la canónica.
-    return score * 1000 + hit.popularity.clamp(0, 999);
+    // A igualdad, primero la ficha con más partidas registradas: es la canónica. El tope
+    // da sitio a la cuenta entera, que en los juegos populares pasa de las cinco cifras.
+    return score * 10000000 + hit.popularity.clamp(0, 9999999);
   }
 
   static List<String> _splitAliases(dynamic raw) => (raw?.toString() ?? '')

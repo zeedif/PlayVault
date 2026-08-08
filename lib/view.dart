@@ -1281,11 +1281,12 @@ class _GameDialogChips extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final d = context.select<HomeCubit, ({GameLanguage language, bool? isSoftware, bool? isFree, bool? hasAchievements, bool? hasSteamCloud, bool? isGeforceNow})>(
+    final d = context.select<HomeCubit, ({GameLanguage language, bool? isSoftware, bool? isFree, bool? hasAchievements, bool? hasSteamCloud, bool? isGeforceNow, bool? isOwnedOnSteam})>(
       (c) {
         final g = c.gameById(gameId) ?? fallback;
         return (language: g.language, isSoftware: g.isSoftware, isFree: g.isFree,
-                hasAchievements: g.hasAchievements, hasSteamCloud: g.hasSteamCloud, isGeforceNow: g.isGeforceNow);
+                hasAchievements: g.hasAchievements, hasSteamCloud: g.hasSteamCloud,
+                isGeforceNow: g.isGeforceNow, isOwnedOnSteam: g.isOwnedOnSteam);
       },
     );
     return Wrap(
@@ -1297,7 +1298,9 @@ class _GameDialogChips extends StatelessWidget {
         if (d.isFree == true) const _InfoChip(icon: Icons.money_off, label: 'Gratuito'),
         if (d.hasAchievements == true) const _InfoChip(icon: Icons.emoji_events, label: 'Logros'),
         if (d.hasSteamCloud == true) const _InfoChip(icon: Icons.cloud, label: 'Steam Cloud'),
-        if (d.isGeforceNow == true) const _InfoChip(icon: Icons.computer, label: 'GeForce NOW'),
+        if (d.isGeforceNow == true) const _InfoChip(icon: Icons.cast, label: 'GeForce NOW'),
+        // Solo se avisa de la ausencia: que un juego esté en la cuenta es lo normal.
+        if (d.isOwnedOnSteam == false) const _InfoChip(icon: Icons.no_accounts, label: 'Fuera de la cuenta'),
       ],
     );
   }
@@ -2501,6 +2504,19 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
                 onSelected: (t) => context.read<HomeCubit>().updateFlag(geforceNowFilter: t),
               ),
             ),
+
+            // Sin cuenta vinculada, o con una que no aportó ningún juego, el filtro
+            // dejaría ambos lados vacíos.
+            if (context.select<HomeCubit, bool>((c) => c.hasSteamOwnershipData))
+              _buildGroup(
+                'Cuenta de Steam',
+                _TriFilterChips(
+                  yesLabel: 'En la cuenta',
+                  noLabel: 'No en la cuenta',
+                  selector: (s) => s.steamOwnershipFilter,
+                  onSelected: (t) => context.read<HomeCubit>().updateFlag(steamOwnershipFilter: t),
+                ),
+              ),
 
             _buildGroup(
               'Otras características',
