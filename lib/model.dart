@@ -46,6 +46,9 @@ class Game({
   final String? userNote,
   final bool hasFetchedSteam = false,
   final bool hasFetchedGfn = false,
+  /// Si la última sincronización encontró el appid en la cuenta vinculada. `null` mientras
+  /// no se haya sincronizado nunca, y en las entradas añadidas a mano sin appid.
+  final bool? isOwnedOnSteam,
   final int? hltbFetchedAt,
   final HltbStats? hltbStats,
 }) {
@@ -135,6 +138,7 @@ class Game({
       userNote: json['user_note'] as String?,
       hasFetchedSteam: fetchedSteam,
       hasFetchedGfn: (json['has_fetched_gfn'] as bool?) ?? false,
+      isOwnedOnSteam: json['is_owned_on_steam'] as bool?,
       hltbFetchedAt: json['hltb_fetched_at'] as int?,
       hltbStats: json['hltb_stats'] != null ? HltbStats.fromJson(json['hltb_stats'] as Map<String, dynamic>) : null,
     );
@@ -160,6 +164,7 @@ class Game({
     if (userNote != null) 'user_note': userNote,
     'has_fetched_steam': hasFetchedSteam,
     'has_fetched_gfn': hasFetchedGfn,
+    if (isOwnedOnSteam != null) 'is_owned_on_steam': isOwnedOnSteam,
     'hltb_fetched_at': hltbFetchedAt,
     if (hltbStats != null) 'hltb_stats': hltbStats!.toJson(),
   };
@@ -199,6 +204,7 @@ class Game({
       userNote: pick('user_note', userNote),
       hasFetchedSteam: pick('has_fetched_steam', hasFetchedSteam),
       hasFetchedGfn: pick('has_fetched_gfn', hasFetchedGfn),
+      isOwnedOnSteam: pick('is_owned_on_steam', isOwnedOnSteam),
       hltbFetchedAt: pick('hltb_fetched_at', hltbFetchedAt),
       hltbStats: json.containsKey('hltb_stats') && json['hltb_stats'] != null ? HltbStats.fromJson(json['hltb_stats'] as Map<String, dynamic>) : hltbStats,
     );
@@ -225,6 +231,7 @@ class Game({
     String? userNote,
     bool? hasFetchedSteam,
     bool? hasFetchedGfn,
+    bool? isOwnedOnSteam,
     int? hltbFetchedAt,
     HltbStats? hltbStats,
   }) => Game(
@@ -248,6 +255,7 @@ class Game({
     userNote: userNote ?? this.userNote,
     hasFetchedSteam: hasFetchedSteam ?? this.hasFetchedSteam,
     hasFetchedGfn: hasFetchedGfn ?? this.hasFetchedGfn,
+    isOwnedOnSteam: isOwnedOnSteam ?? this.isOwnedOnSteam,
     hltbFetchedAt: hltbFetchedAt ?? this.hltbFetchedAt,
     hltbStats: hltbStats ?? this.hltbStats,
   );
