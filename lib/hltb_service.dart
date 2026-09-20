@@ -125,14 +125,17 @@ final class HltbUnavailable extends HltbLookup {
 
 class HltbService {
   static const String _baseUrl = 'https://howlongtobeat.com';
-  static String _currentEndpoint = '/api/bleed';
+  // HLTB retiró `/api/bleed`; este es el endpoint de búsqueda vigente si no se
+  // logra descubrir ninguno.
+  static String _currentEndpoint = '/api/search/site';
   static Map<String, String>? _authHeaders;
   static bool _endpointResolved = false;
   static DateTime _authExpiry = DateTime.fromMillisecondsSinceEpoch(0);
 
-  /// El token de `init` caduca en el servidor; se renueva antes de que expire en vez de
-  /// esperar a que las búsquedas empiecen a devolver vacío.
-  static const Duration _authTtl = Duration(minutes: 30);
+  /// El token de `init` caduca en el servidor a los ~90s; cachearlo más tiempo deja que
+  /// las búsquedas de un lote grande empiecen a fallar con 401/403 y gasten el doble de
+  /// peticiones reintentando.
+  static const Duration _authTtl = Duration(seconds: 90);
 
   /// Ritmo sostenido de peticiones. Por debajo de esto HLTB responde con normalidad;
   /// la ráfaga cubre el arranque (endpoint + token + primera búsqueda) sin espera.
@@ -505,11 +508,17 @@ class HltbService {
       final scriptJs = await _get(Uri.parse('$_baseUrl${scriptMatch.group(1)}'));
       if (scriptJs == null) return;
 
+      // El "/" va dentro de la clase de caracteres: la ruta de búsqueda tiene dos
+      // segmentos ("search/site") y cortar en el primer "/" deja un "/api/search" muerto.
       final apiMatch = RegExp(
-        r'''fetch\s*\(\s*["']/api/([a-zA-Z0-9_]+)[^"']*["']\s*,\s*\{[^}]*method:\s*["']POST["']''',
+        r'''fetch\s*\(\s*["']/api/([a-zA-Z0-9_/]+)[^"']*["']\s*,\s*\{[^}]*method:\s*["']POST["']''',
         caseSensitive: false,
       ).firstMatch(scriptJs);
-      if (apiMatch != null) _currentEndpoint = '/api/${apiMatch.group(1)}';
+      final suffix = apiMatch?.group(1)?.replaceAll(RegExp(r'^/+|/+$'), '');
+      // "find" es la ruta de otra función del sitio, no la de búsqueda.
+      if (suffix != null && suffix.isNotEmpty && suffix.split('/').first.toLowerCase() != 'find') {
+        _currentEndpoint = '/api/$suffix';
+      }
     }
   }
 

@@ -564,7 +564,7 @@ class HomeView extends StatelessWidget {
     try {
       final jsonString = context.read<HomeCubit>().exportGamesJson();
       final bytes = Uint8List.fromList(utf8.encode(jsonString));
-      String? outputFile = await FilePicker.saveFile(
+      Uri? outputFile = await FilePicker.saveFile(
         dialogTitle: 'Exportar/Guardar JSON',
         fileName: 'mis_juegos.json',
         type: FileType.custom,
@@ -612,16 +612,16 @@ class HomeView extends StatelessWidget {
                       ),
                       onPressed: () async {
                         try {
-                          FilePickerResult? result = await FilePicker.pickFiles(
+                          final result = await FilePicker.pickFiles(
                             type: FileType.custom,
                             allowedExtensions: ['json', 'txt'],
                           );
 
-                          if (result != null && result.files.single.path != null) {
-                            final file = File(result.files.single.path!);
+                          if (result.isNotEmpty && result.single.path != null) {
+                            final file = File(result.single.path!);
                             final content = await file.readAsString();
                             setState(() {
-                              selectedFileName = result.files.single.path;
+                              selectedFileName = result.single.path;
                               jsonCtrl.text = content;
                             });
                           }

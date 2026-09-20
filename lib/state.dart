@@ -1457,6 +1457,15 @@ class HomeCubit extends Cubit<HomeState> {
       }
     }
 
+    // Las etiquetas de tipo describen cómo se juega, y no aplican al software: los hay
+    // de servidor, de un solo uso y pensados para varios a la vez. En vez de deducirles un
+    // tipo que no tienen, quedan todas en `none`.
+    if ((patch['is_software'] ?? game.isSoftware) == true) {
+      patch['sp_type'] = SpType.none.name;
+      patch['matchmaking'] = InteractionType.none.name;
+      patch['friend_play'] = InteractionType.none.name;
+    }
+
     return patch;
   }
 
