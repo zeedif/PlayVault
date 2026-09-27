@@ -69,17 +69,18 @@ String _formatDuration(int? minutes) {
 }
 
 /// Unidad con la que se muestra un tamaño: MB/GB, o MiB/GiB si el ajuste es binario.
-({double divisor, String name}) _unitData(double bytes, bool isBinary) =>
-    switch ((isBinary, bytes >= (isBinary ? 1073741824.0 : 1000000000.0))) {
+/// [large] elige GB/GiB frente a MB/MiB.
+({double divisor, String name}) _unitOf({required bool large, required bool isBinary}) =>
+    switch ((isBinary, large)) {
       (true, true) => (divisor: 1073741824.0, name: "GiB"),
       (true, false) => (divisor: 1048576.0, name: "MiB"),
       (false, true) => (divisor: 1000000000.0, name: "GB"),
       (false, false) => (divisor: 1000000.0, name: "MB"),
     };
 
-/// Cifra del tamaño en su unidad, sin decimales cuando es exacta.
-String _formatUnitValue(double bytes, bool isBinary) {
-  final value = bytes / _unitData(bytes, isBinary).divisor;
+/// Cifra del tamaño en la unidad de [divisor], sin decimales cuando es exacta.
+String _formatIn(double bytes, double divisor) {
+  final value = bytes / divisor;
   return value == value.toInt() ? value.toInt().toString() : value.toStringAsFixed(2);
 }
 
@@ -1458,77 +1459,103 @@ class _GameSizeRowState extends State<_GameSizeRow> {
   late final HomeCubit _cubit = context.read<HomeCubit>();
   final TextEditingController _ctrl = TextEditingController();
   final FocusNode _focus = FocusNode();
-  late double _bytes = (_cubit.gameById(widget.gameId) ?? widget.fallback).sizeInBytes;
+  late final Game _initial = _cubit.gameById(widget.gameId) ?? widget.fallback;
+  late double _bytes = _initial.sizeInBytes;
+  // La unidad es elección del usuario, no se deduce de la cifra: 0,5 GB o un campo
+  // vacío no deben devolver el selector a MB.
+  late bool _large = _isLargeUnit(_initial.unit);
+
+  static bool _isLargeUnit(String unit) => unit == 'gb' || unit == 'gib';
 
   bool get _isBinary => _cubit.state.binaryFormat;
 
   @override
   void initState() {
     super.initState();
-    _ctrl.text = _formatUnitValue(_bytes, _isBinary);
+    _ctrl.text = _formatIn(_bytes, _unitOf(large: _large, isBinary: _isBinary).divisor);
     _focus.addListener(() {
-      if (!_focus.hasFocus) _commit(_unitData(_bytes, _isBinary));
+      if (!_focus.hasFocus) _commit(_large);
     });
   }
 
   @override
   void dispose() {
+    // Cerrar el diálogo con el campo enfocado no dispara el listener de foco.
+    if (_focus.hasFocus) _save(_large);
     _ctrl.dispose();
     _focus.dispose();
     super.dispose();
   }
 
-  void _commit(({double divisor, String name}) unit) {
-    final isBinary = _isBinary;
-    final value = double.tryParse(_ctrl.text.replaceAll(',', '.'));
-    final newBytes = (value ?? _bytes / _unitData(_bytes, isBinary).divisor) * unit.divisor;
+  /// Guarda lo escrito y devuelve el peso resultante. Sin cifra válida se conserva el
+  /// peso guardado y solo cambia la unidad.
+  double _save(bool large) {
+    final unit = _unitOf(large: large, isBinary: _isBinary);
+    final value = double.tryParse(_ctrl.text.replaceAll(',', '.')) ?? _bytes / unit.divisor;
 
-    if (value != null && newBytes != _bytes) {
-      _cubit.updateGameSize(_cubit.gameById(widget.gameId) ?? widget.fallback, value, unit.name);
+    final game = _cubit.gameById(widget.gameId) ?? widget.fallback;
+    // Se compara en bytes con la tolerancia del redondeo a 2 decimales, no por nombre:
+    // perder el foco sin editar no debe reescribir el archivo.
+    final edited = (value * unit.divisor - game.sizeInBytes).abs() > unit.divisor * 0.005;
+    if (edited || large != _isLargeUnit(game.unit)) {
+      _cubit.updateGameSize(game, value, unit.name);
     }
-    setState(() => _bytes = newBytes);
-    _ctrl.text = _formatUnitValue(newBytes, isBinary);
+    return edited ? value * unit.divisor : game.sizeInBytes;
+  }
+
+  void _commit(bool large) {
+    final bytes = _save(large);
+    setState(() {
+      _bytes = bytes;
+      _large = large;
+    });
+    _ctrl.text = _formatIn(bytes, _unitOf(large: large, isBinary: _isBinary).divisor);
   }
 
   @override
   Widget build(BuildContext context) {
     final isBinary = context.select((HomeCubit c) => c.state.binaryFormat);
-    final unit = _unitData(_bytes, isBinary);
     final valueStyle = Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold);
 
-    return Row(
-      spacing: AppSpacing.small,
-      children: [
-        const Icon(Icons.sd_storage, size: AppIconSize.medium),
-        const Text('Peso:'),
-        Expanded(
-          child: TextField(
-            controller: _ctrl,
-            focusNode: _focus,
-            textAlign: TextAlign.end,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            style: valueStyle,
-            decoration: const InputDecoration(border: InputBorder.none, isCollapsed: true, hintText: '0'),
-            onSubmitted: (_) => _commit(unit),
+    return BlocListener<HomeCubit, HomeState>(
+      listenWhen: (p, c) => p.binaryFormat != c.binaryFormat,
+      listener: (_, s) => _ctrl.text = _formatIn(_bytes, _unitOf(large: _large, isBinary: s.binaryFormat).divisor),
+      child: Row(
+        spacing: AppSpacing.small,
+        children: [
+          const Icon(Icons.sd_storage, size: AppIconSize.medium),
+          const Text('Peso:'),
+          Expanded(
+            child: TextField(
+              controller: _ctrl,
+              focusNode: _focus,
+              textAlign: TextAlign.end,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              style: valueStyle,
+              decoration: const InputDecoration(border: InputBorder.none, isCollapsed: true, hintText: '0'),
+              // En táctil, tocar fuera no quita el foco por defecto y el peso no se guardaría.
+              onTapOutside: (_) => _focus.unfocus(),
+              onSubmitted: (_) => _focus.unfocus(),
+            ),
           ),
-        ),
-        DropdownButtonHideUnderline(
-          child: DropdownButton<({double divisor, String name})>(
-            value: unit,
-            isDense: true,
-            iconSize: 18,
-            borderRadius: AppRadius.small,
-            style: valueStyle,
-            items: [
-              for (final u in [_unitData(0, isBinary), _unitData(double.maxFinite, isBinary)])
-                DropdownMenuItem(value: u, child: Text(u.name)),
-            ],
-            onChanged: (newUnit) {
-              if (newUnit != null) _commit(newUnit);
-            },
+          DropdownButtonHideUnderline(
+            child: DropdownButton<bool>(
+              value: _large,
+              isDense: true,
+              iconSize: 18,
+              borderRadius: AppRadius.small,
+              style: valueStyle,
+              items: [
+                for (final large in const [false, true])
+                  DropdownMenuItem(value: large, child: Text(_unitOf(large: large, isBinary: isBinary).name)),
+              ],
+              onChanged: (large) {
+                if (large != null) _commit(large);
+              },
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -2999,14 +3026,17 @@ class _SliderControlsState extends State<_SliderControls> {
   bool _isDragging = false;
   double? _localMinBytes;
   double? _localMaxBytes;
+  // Unidad de cada extremo, deducida del valor: GB en cuanto llega a 1 GB.
+  bool _minLarge = false;
+  bool _maxLarge = false;
 
   bool get _isInteracting => _isDragging || minFocus.hasFocus || maxFocus.hasFocus;
 
   @override
   void initState() {
     super.initState();
-    minFocus.addListener(_onFocusChange);
-    maxFocus.addListener(_onFocusChange);
+    minFocus.addListener(() => _onFieldBlur(minFocus, minCtrl, true));
+    maxFocus.addListener(() => _onFieldBlur(maxFocus, maxCtrl, false));
     final initial = context.read<HomeCubit>().state;
     _localMinBytes = initial.currentMinBytes;
     _localMaxBytes = initial.currentMaxBytes;
@@ -3023,39 +3053,44 @@ class _SliderControlsState extends State<_SliderControls> {
     super.dispose();
   }
 
-  void _onFocusChange() {
-    if (!_isInteracting) {
-      final state = context.read<HomeCubit>().state;
-      _localMinBytes = state.currentMinBytes;
-      _localMaxBytes = state.currentMaxBytes;
-      _updateTextFields(_localMinBytes!, _localMaxBytes!, state.binaryFormat);
-    }
+  void _onFieldBlur(FocusNode focus, TextEditingController ctrl, bool isMin) {
+    if (mounted && !focus.hasFocus) _submitManualEntry(ctrl, isMin, isMin ? _minLarge : _maxLarge);
   }
 
   void _updateTextFields(double minB, double maxB, bool isBinary) {
-    final minStr = _formatUnitValue(minB, isBinary);
-    final maxStr = _formatUnitValue(maxB, isBinary);
+    final gb = isBinary ? 1073741824.0 : 1000000000.0;
+    _minLarge = minB >= gb;
+    _maxLarge = maxB >= gb;
+    final minStr = _formatIn(minB, _unitOf(large: _minLarge, isBinary: isBinary).divisor);
+    final maxStr = _formatIn(maxB, _unitOf(large: _maxLarge, isBinary: isBinary).divisor);
     if (minCtrl.text != minStr) minCtrl.text = minStr;
     if (maxCtrl.text != maxStr) maxCtrl.text = maxStr;
   }
 
-  void _submitManualEntry(TextEditingController ctrl, bool isMin, double unitDivisor) {
+  /// El slider solo recorre unidades enteras, así que la entrada manual también. Un campo
+  /// vacío recupera la cifra que mostraba y la aplica en la unidad elegida.
+  void _submitManualEntry(TextEditingController ctrl, bool isMin, bool large) {
     _debounceTimer?.cancel();
 
     final state = context.read<HomeCubit>().state;
     final currentBytes = isMin ? (_localMinBytes ?? state.currentMinBytes) : (_localMaxBytes ?? state.currentMaxBytes);
+    final shownDivisor = _unitOf(large: isMin ? _minLarge : _maxLarge, isBinary: state.binaryFormat).divisor;
+    final unitDivisor = _unitOf(large: large, isBinary: state.binaryFormat).divisor;
 
-    double parsed = double.tryParse(ctrl.text) ?? (currentBytes / unitDivisor);
-    double newBytes = parsed * unitDivisor;
+    final value = int.tryParse(ctrl.text) ?? (currentBytes / shownDivisor).round();
+    final cubit = context.read<HomeCubit>()
+      ..updateRange(
+        isMin ? value * unitDivisor : _localMinBytes ?? state.currentMinBytes,
+        isMin ? _localMaxBytes ?? state.currentMaxBytes : value * unitDivisor,
+      );
 
-    if (isMin) {
-      _localMinBytes = newBytes;
-    } else {
-      _localMaxBytes = newBytes;
-    }
-
-    context.read<HomeCubit>().updateRange(_localMinBytes!, _localMaxBytes!);
-    FocusScope.of(context).unfocus();
+    // Se toma lo que quedó en el estado: si el valor salió de los límites y se recortó a
+    // lo que ya había, no hay emit que corrija el campo.
+    setState(() {
+      _localMinBytes = cubit.state.currentMinBytes;
+      _localMaxBytes = cubit.state.currentMaxBytes;
+      _updateTextFields(_localMinBytes!, _localMaxBytes!, cubit.state.binaryFormat);
+    });
   }
 
   void _onSliderChanged(double calcMin, double calcMax, bool isBinary) {
@@ -3184,8 +3219,8 @@ class _SliderControlsState extends State<_SliderControls> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  _buildEditableLimit(minCtrl, minFocus, true, cMin, state.binaryFormat),
-                  _buildEditableLimit(maxCtrl, maxFocus, false, cMax, state.binaryFormat),
+                  _buildEditableLimit(minCtrl, minFocus, true, state.binaryFormat),
+                  _buildEditableLimit(maxCtrl, maxFocus, false, state.binaryFormat),
                 ],
               ),
               SliderTheme(
@@ -3216,17 +3251,13 @@ class _SliderControlsState extends State<_SliderControls> {
     );
   }
 
-  Widget _buildEditableLimit(TextEditingController ctrl, FocusNode focus, bool isMin, double currentBytes, bool isBinary) {
-    final ud = _unitData(currentBytes, isBinary);
-    final double baseMB = isBinary ? 1048576.0 : 1000000.0;
-    final double baseGB = isBinary ? 1073741824.0 : 1000000000.0;
+  Widget _buildEditableLimit(TextEditingController ctrl, FocusNode focus, bool isMin, bool isBinary) {
+    final large = isMin ? _minLarge : _maxLarge;
 
     return TapRegion(
-      onTapOutside: (event) {
-        if (focus.hasFocus) {
-          focus.unfocus();
-          _submitManualEntry(ctrl, isMin, ud.divisor);
-        }
+      // Guardar queda en manos del listener de foco, sea cual sea la forma de perderlo.
+      onTapOutside: (_) {
+        if (focus.hasFocus) focus.unfocus();
       },
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -3238,29 +3269,30 @@ class _SliderControlsState extends State<_SliderControls> {
             child: TextField(
               controller: ctrl,
               focusNode: focus,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               decoration: const InputDecoration(border: InputBorder.none, isCollapsed: true),
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.bold,
                 color: Theme.of(context).colorScheme.primary,
               ),
-              onSubmitted: (_) => _submitManualEntry(ctrl, isMin, ud.divisor),
+              onSubmitted: (_) => focus.unfocus(),
             ),
           ),
           DropdownButtonHideUnderline(
-            child: DropdownButton<double>(
-              value: ud.divisor,
+            child: DropdownButton<bool>(
+              value: large,
               isDense: true, iconSize: 20,
               style: Theme.of(context).textTheme.titleSmall?.copyWith(
                 fontWeight: FontWeight.bold,
                 color: Theme.of(context).colorScheme.primary,
               ),
               items: [
-                DropdownMenuItem(value: baseMB, child: Text(isBinary ? "MiB" : "MB")),
-                DropdownMenuItem(value: baseGB, child: Text(isBinary ? "GiB" : "GB")),
+                for (final l in const [false, true])
+                  DropdownMenuItem(value: l, child: Text(_unitOf(large: l, isBinary: isBinary).name)),
               ],
-              onChanged: (newDivisor) {
-                if (newDivisor != null) _submitManualEntry(ctrl, isMin, newDivisor);
+              onChanged: (l) {
+                if (l != null) _submitManualEntry(ctrl, isMin, l);
               },
             ),
           ),

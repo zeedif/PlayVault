@@ -360,9 +360,10 @@ class HomeState({
     groupByStatus,
     ...statusFilters.map((e) => Object.hash(e.status, e.visible)),
     searchQuery,
-    visibleLanguages,
-    visibleSpTypes,
-    visibleVrTypes,
+    // `==` compara los sets por contenido; su hashCode por defecto es de identidad.
+    Object.hashAllUnordered(visibleLanguages),
+    Object.hashAllUnordered(visibleSpTypes),
+    Object.hashAllUnordered(visibleVrTypes),
     includeSoftware,
     friendPlayFilter,
     friendPlayExperience,
@@ -1930,11 +1931,11 @@ class HomeCubit extends Cubit<HomeState> {
 
   static int _compareCustom(String a, String b) => _normalizeForSort(a).compareTo(_normalizeForSort(b));
 
-  static bool _matchSearchTitle(String title, String query) {
-    if (query.trim().isEmpty) return true;
+  /// Patrón de búsqueda compilado una vez por pasada de filtrado; null si no hay búsqueda.
+  static RegExp? _searchPattern(String query) {
+    if (query.trim().isEmpty) return null;
     final parts = HltbService.removeDiacritics(query).trim().split(RegExp(r' +')).map(RegExp.escape);
-    return RegExp(parts.join(r'\s+'), caseSensitive: false)
-        .hasMatch(HltbService.removeDiacritics(title));
+    return RegExp(parts.join(r'\s+'), caseSensitive: false);
   }
 
   /// DRY para los filtros de interacción (matchmaking y friendPlay).
@@ -1954,8 +1955,10 @@ class HomeCubit extends Cubit<HomeState> {
   }
 
   HomeState _applyFilters(HomeState s) {
+    final search = _searchPattern(s.searchQuery);
+    final visibleStatuses = s.visibleStatuses;
     var filtered = _gamesById.values.where((g) {
-      if (!_matchSearchTitle(g.name ?? '', s.searchQuery)) return false;
+      if (search != null && !search.hasMatch(HltbService.removeDiacritics(g.name ?? ''))) return false;
       if (!s.includeSoftware && g.isSoftware == true) return false;
       if (g.spType != null && !s.visibleSpTypes.contains(g.spType)) return false;
       if (g.vrSupport != null && !s.visibleVrTypes.contains(g.vrSupport)) return false;
@@ -1973,7 +1976,7 @@ class HomeCubit extends Cubit<HomeState> {
       if (s.steamOwnershipFilter == TriFilter.yes && g.isOwnedOnSteam != true) return false;
       if (s.steamOwnershipFilter == TriFilter.no && g.isOwnedOnSteam != false) return false;
       if (!s.visibleLanguages.contains(g.language)) return false;
-      if (!s.visibleStatuses.contains(g.status)) return false;
+      if (!visibleStatuses.contains(g.status)) return false;
       if (g.sizeInBytes < s.currentMinBytes || g.sizeInBytes > s.currentMaxBytes) return false;
       return true;
     }).toList();
@@ -1999,14 +2002,21 @@ class HomeCubit extends Cubit<HomeState> {
       _sortGames(filtered, s);
     }
 
-    return s.copyWith(filteredGames: filtered, totalBytes: totalBytes, gameCount: _gamesById.length);
+    // Las colas refiltran tras cada paso aunque no cambie ningún juego: conservar la
+    // misma lista deja que la vista (que compara por identidad) se salte el rebuild.
+    return s.copyWith(
+      filteredGames: listEquals(filtered, s.filteredGames) ? s.filteredGames : filtered,
+      totalBytes: totalBytes,
+      gameCount: _gamesById.length,
+    );
   }
 
   void _sortGames(List<Game> list, HomeState s) {
     if (s.sortBy == 'name') {
-      list.sort((a, b) => s.sortAsc
-          ? _compareCustom(a.name ?? '', b.name ?? '')
-          : _compareCustom(b.name ?? '', a.name ?? ''));
+      // Normalizar dentro del comparador repetiría el trabajo O(N log N) veces por pasada.
+      final keys = Map<Game, String>.identity()
+        ..addEntries(list.map((g) => MapEntry(g, _normalizeForSort(g.name ?? ''))));
+      list.sort((a, b) => s.sortAsc ? keys[a]!.compareTo(keys[b]!) : keys[b]!.compareTo(keys[a]!));
     } else if (s.sortBy case 'hltbMain' || 'hltbExtras' || 'hltbComplete') {
       int? getVal(Game g) {
         final stats = g.hltbStats;
