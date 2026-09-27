@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'app_dimensions.dart';
 import 'hltb_service.dart';
 import 'model.dart';
 import 'state.dart';
@@ -21,7 +22,6 @@ const List<InteractionType> _activeInteractions = [
   InteractionType.pvp,
   InteractionType.both,
 ];
-const _roundedShape = RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(6)));
 
 // ==========================================
 // FUNCIONES PARA UI DE STATUS, IDIOMAS Y CURVA
@@ -314,17 +314,17 @@ class _SteamAccountDialogState extends State<_SteamAccountDialog> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
-            spacing: 12.0,
+            spacing: AppSpacing.medium,
             children: [
               if (state.hasSteamAccount)
                 Container(
-                  padding: const EdgeInsets.all(12),
+                  padding: AppInsets.allMedium,
                   decoration: BoxDecoration(
                     color: scheme.primary.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(6),
+                    borderRadius: AppRadius.small,
                   ),
                   child: Row(
-                    spacing: 12,
+                    spacing: AppSpacing.medium,
                     children: [
                       Icon(Icons.account_circle, color: scheme.primary),
                       Expanded(
@@ -355,7 +355,7 @@ class _SteamAccountDialogState extends State<_SteamAccountDialog> {
                   labelText: 'Perfil de Steam',
                   hintText: 'URL, nombre personalizado o SteamID64',
                   helperText: 'Cuenta de la que se importan los juegos.',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                  border: OutlineInputBorder(borderRadius: AppRadius.small),
                 ),
               ),
               TextField(
@@ -365,7 +365,7 @@ class _SteamAccountDialogState extends State<_SteamAccountDialog> {
                   labelText: 'API key',
                   helperText: 'Si es la clave de ese mismo perfil, incluye sus juegos privados.',
                   helperMaxLines: 2,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                  border: OutlineInputBorder(borderRadius: AppRadius.small),
                   suffixIcon: IconButton(
                     icon: Icon(_obscureKey ? Icons.visibility_off : Icons.visibility, size: 20),
                     tooltip: _obscureKey ? 'Mostrar' : 'Ocultar',
@@ -408,7 +408,7 @@ class _SteamAccountDialogState extends State<_SteamAccountDialog> {
                 ? null
                 : _link,
             child: _busy
-                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                ? const SizedBox(width: AppIconSize.medium, height: AppIconSize.medium, child: CircularProgressIndicator(strokeWidth: 2))
                 : const Text('Vincular'),
           ),
         ),
@@ -587,7 +587,7 @@ class _HomeScaffold extends StatelessWidget {
           else if (!hasGames)
             const Expanded(
               child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: 18),
+                padding: AppInsets.horizontalLarge,
                 child: Center(
                   child: Text(
                     'No hay datos. Importa un JSON o vincula tu cuenta de Steam para comenzar.',
@@ -646,12 +646,12 @@ class _HomeScaffold extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
-                  spacing: 12.0,
+                  spacing: AppSpacing.medium,
                   children: [
                     OutlinedButton(
                       style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.all(12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                        padding: AppInsets.allMedium,
+                        shape: AppRadius.smallShape,
                         backgroundColor: scheme.primary.withValues(alpha: 0.05),
                         side: BorderSide(color: scheme.primary.withValues(alpha: 0.5)),
                       ),
@@ -679,9 +679,9 @@ class _HomeScaffold extends StatelessWidget {
                         }
                       },
                       child: Row(
-                        spacing: 12,
+                        spacing: AppSpacing.medium,
                         children: [
-                          Icon(Icons.folder_open, color: scheme.primary, size: 24),
+                          Icon(Icons.folder_open, color: scheme.primary, size: AppIconSize.large),
                           Expanded(
                             child: Text(
                               selectedFileName ?? 'Tocar para elegir archivo...',
@@ -703,8 +703,8 @@ class _HomeScaffold extends StatelessWidget {
                       maxLines: 12,
                       decoration: InputDecoration(
                         hintText: 'Pega el JSON aquí o selecciónalo desde el botón superior...',
-                        contentPadding: const EdgeInsets.all(12),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                        contentPadding: AppInsets.allMedium,
+                        border: OutlineInputBorder(borderRadius: AppRadius.small),
                       ),
                     ),
                     // Eje 1: reemplazar TODA la biblioteca (borra los juegos que no vengan en el import).
@@ -736,13 +736,13 @@ class _HomeScaffold extends StatelessWidget {
                     // Alerta encadenada: al activar «Reemplazar» avisamos de que se pierde lo ya definido.
                     if (replace)
                       Container(
-                        padding: const EdgeInsets.all(12),
+                        padding: AppInsets.allMedium,
                         decoration: BoxDecoration(
                           color: scheme.errorContainer,
-                          borderRadius: BorderRadius.circular(6),
+                          borderRadius: AppRadius.small,
                         ),
                         child: Row(
-                          spacing: 12,
+                          spacing: AppSpacing.medium,
                           children: [
                             Icon(Icons.warning_amber_rounded, color: scheme.onErrorContainer),
                             Expanded(
@@ -849,7 +849,7 @@ class _SummaryText extends StatelessWidget {
     final isBinary = context.select((HomeCubit c) => c.state.binaryFormat);
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: AppInsets.verticalSmall,
       child: Text(
         "RESULTADOS: $count | PESO: ${HomeCubit.formatBytes(bytes, isBinary)}",
         style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
@@ -909,21 +909,21 @@ class _CompactControls extends StatelessWidget {
         c.state.isSyncingSteamLibrary);
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: AppInsets.control,
       child: LayoutBuilder(
         builder: (context, constraints) {
           // Mínimo del _SliderControls: 440.61619186401332 + 36
           final useTwoRows = hasGames && constraints.maxWidth < 476.62;
           final topRow = Row(
             crossAxisAlignment: CrossAxisAlignment.center,
-            spacing: 6,
+            spacing: AppSpacing.small,
             children: [
               SizedBox(
                 height: 36,
                 child: OutlinedButton.icon(
-                  icon: const Icon(Icons.filter_alt, size: 18),
+                  icon: const Icon(Icons.filter_alt, size: AppIconSize.medium),
                   label: const Text('Filtros'),
-                  style: OutlinedButton.styleFrom(shape: _roundedShape),
+                  style: OutlinedButton.styleFrom(shape: AppRadius.smallShape),
                   onPressed: () => showModalBottomSheet(
                     context: context,
                     isScrollControlled: true,
@@ -951,22 +951,22 @@ class _CompactControls extends StatelessWidget {
                     labelStyle: TextStyle(color: Theme.of(context).colorScheme.primary),
                     floatingLabelStyle: TextStyle(color: Theme.of(context).colorScheme.primary),
                     contentPadding: EdgeInsets.zero,
-                    border: const OutlineInputBorder(gapPadding: 0, borderRadius: BorderRadius.all(Radius.circular(6))),
+                    border: const OutlineInputBorder(gapPadding: 0, borderRadius: AppRadius.small),
                   ),
                   child: DropdownButtonHideUnderline(
                     child: DropdownButton<String>(
                       value: sortBy,
                       isDense: true,
                       isExpanded: true,
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      borderRadius: BorderRadius.circular(6),
+                      padding: AppInsets.control,
+                      borderRadius: AppRadius.small,
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         fontWeight: FontWeight.w600,
                         color: Theme.of(context).colorScheme.primary,
                       ),
                       icon: Padding(
-                        padding: const EdgeInsets.only(left: 6),
-                        child: Icon(Icons.sort, size: 18, color: Theme.of(context).colorScheme.primary),
+                        padding: const EdgeInsets.only(left: AppSpacing.small),
+                        child: Icon(Icons.sort, size: AppIconSize.medium, color: Theme.of(context).colorScheme.primary),
                       ),
                       items: const [
                         DropdownMenuItem(value: 'name', child: Text('Nombre')),
@@ -987,7 +987,7 @@ class _CompactControls extends StatelessWidget {
                   padding: EdgeInsets.zero,
                   minimumSize: const Size(36, 36),
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  shape: _roundedShape,
+                  shape: AppRadius.smallShape,
                   foregroundColor: Theme.of(context).colorScheme.primary,
                 ).copyWith(
                   side: WidgetStateProperty.resolveWith((states) {
@@ -1010,7 +1010,7 @@ class _CompactControls extends StatelessWidget {
           if (useTwoRows) {
             return Column(
               mainAxisSize: MainAxisSize.min,
-              spacing: 6.0,
+              spacing: AppSpacing.small,
               children: [
                 topRow,
                 const _SliderControls(),
@@ -1038,9 +1038,9 @@ class _GamesList extends StatelessWidget {
       },
       builder: (context, state) {
         return ListView.separated(
-          padding: const EdgeInsets.only(left: 12, right: 12, bottom: 6),
+          padding: const EdgeInsets.fromLTRB(AppSpacing.medium, 0, AppSpacing.medium, AppSpacing.small),
           itemCount: state.filteredGames.length,
-          separatorBuilder: (context, index) => const SizedBox(height: 6),
+          separatorBuilder: (context, index) => const SizedBox(height: AppSpacing.small),
           itemBuilder: (context, index) {
             final game = state.filteredGames[index];
 
@@ -1111,10 +1111,10 @@ class _GamesList extends StatelessWidget {
             }
 
             return ListTile(
-              shape: _roundedShape,
+              shape: AppRadius.smallShape,
               tileColor: _statusColor(status, Theme.of(context).brightness == Brightness.dark),
               onLongPress: () => _openGameDialog(context, game),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+              contentPadding: AppInsets.horizontalMedium,
               leading: PopupMenuButton<GameStatus>(
                 tooltip: 'Cambiar estatus',
                 initialValue: status,
@@ -1127,7 +1127,7 @@ class _GamesList extends StatelessWidget {
                   width: 60, height: 60,
                   child: coverPath != null
                     ? ClipRRect(
-                        borderRadius: BorderRadius.circular(6),
+                        borderRadius: AppRadius.small,
                         child: Image.file(File(coverPath), fit: BoxFit.contain),
                       )
                     : CircleAvatar(
@@ -1165,7 +1165,7 @@ class _DialogSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      padding: AppInsets.horizontalMedium,
       child: child,
     );
   }
@@ -1177,7 +1177,7 @@ class _DialogDivider extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const Padding(
-      padding: EdgeInsets.symmetric(vertical: 6),
+      padding: AppInsets.verticalSmall,
       child: Divider(height: 0),
     );
   }
@@ -1199,12 +1199,12 @@ class _GameDialog extends StatelessWidget {
     return SimpleDialog(
       clipBehavior: Clip.antiAlias,
       titlePadding: EdgeInsets.zero,
-      contentPadding: const EdgeInsets.symmetric(vertical: 12),
+      contentPadding: AppInsets.verticalMedium,
       constraints: BoxConstraints(minWidth: dialogWidth, maxWidth: dialogWidth),
       children: [
         // 1. Título
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
+          padding: AppInsets.horizontalMedium,
           child: titlePath != null
               ? Image.file(File(titlePath), height: 96, fit: BoxFit.contain)
               : Text(
@@ -1241,25 +1241,25 @@ class _GameDialog extends StatelessWidget {
           const _DialogDivider(),
           if (idSteam != null)
             SimpleDialogOption(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              padding: AppInsets.allMedium,
               onPressed: () async {
                 final uri = Uri.parse('https://store.steampowered.com/app/$idSteam/');
                 if (await canLaunchUrl(uri)) await launchUrl(uri, mode: LaunchMode.externalApplication);
               },
-              child: Row(spacing: 12, children: [
-                const Icon(Icons.link, size: 18),
+              child: Row(spacing: AppSpacing.medium, children: [
+                const Icon(Icons.link, size: AppIconSize.medium),
                 Text("Ver en Steam", style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold)),
               ]),
             ),
           if (patchUrl != null)
             SimpleDialogOption(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              padding: AppInsets.allMedium,
               onPressed: () async {
                 final uri = Uri.parse(patchUrl);
                 if (await canLaunchUrl(uri)) await launchUrl(uri, mode: LaunchMode.externalApplication);
               },
-              child: Row(spacing: 12, children: [
-                const Icon(Icons.download, size: 18),
+              child: Row(spacing: AppSpacing.medium, children: [
+                const Icon(Icons.download, size: AppIconSize.medium),
                 Text("Descargar parche", style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold)),
               ]),
             ),
@@ -1290,15 +1290,15 @@ class _GameDialogStatus extends StatelessWidget {
       children: GameStatus.values.map((statusValue) {
         final isCurrent = status == statusValue;
         return SimpleDialogOption(
-          padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 12.0),
+          padding: AppInsets.allMedium,
           onPressed: () {
             final g = context.read<HomeCubit>().gameById(gameId);
             if (g != null) context.read<HomeCubit>().updateGameStatus(g, statusValue);
           },
           child: Row(
-            spacing: 12,
+            spacing: AppSpacing.medium,
             children: [
-              const SizedBox(width: 12),
+              const SizedBox(width: AppSpacing.medium),
               Text(
                 _statusName(statusValue),
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
@@ -1308,7 +1308,7 @@ class _GameDialogStatus extends StatelessWidget {
               ),
               if (isCurrent) ...[
                 const Spacer(),
-                Icon(Icons.check, size: 18, color: Theme.of(context).colorScheme.primary),
+                Icon(Icons.check, size: AppIconSize.medium, color: Theme.of(context).colorScheme.primary),
               ],
             ],
           ),
@@ -1335,8 +1335,8 @@ class _GameDialogChips extends StatelessWidget {
       },
     );
     return Wrap(
-      spacing: 6,
-      runSpacing: 6,
+      spacing: AppSpacing.small,
+      runSpacing: AppSpacing.small,
       children: [
         _InfoChip(icon: Icons.language, label: _langName(d.language)),
         if (d.isSoftware == true) const _InfoChip(icon: Icons.apps, label: 'Aplicación'),
@@ -1373,7 +1373,7 @@ class _GameDialogProperties extends StatelessWidget {
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
-      spacing: 12.0,
+      spacing: AppSpacing.medium,
       children: [
         _GameSizeRow(gameId: gameId, fallback: fallback),
 
@@ -1497,9 +1497,9 @@ class _GameSizeRowState extends State<_GameSizeRow> {
     final valueStyle = Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold);
 
     return Row(
-      spacing: 6,
+      spacing: AppSpacing.small,
       children: [
-        const Icon(Icons.sd_storage, size: 18),
+        const Icon(Icons.sd_storage, size: AppIconSize.medium),
         const Text('Peso:'),
         Expanded(
           child: TextField(
@@ -1517,7 +1517,7 @@ class _GameSizeRowState extends State<_GameSizeRow> {
             value: unit,
             isDense: true,
             iconSize: 18,
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: AppRadius.small,
             style: valueStyle,
             items: [
               for (final u in [_unitData(0, isBinary), _unitData(double.maxFinite, isBinary)])
@@ -1552,7 +1552,12 @@ class _GameDialogHltb extends StatelessWidget {
 
     Widget td(String text, {bool isHeader = false, bool isLabel = false, bool trailing = false}) {
       final child = Padding(
-        padding: EdgeInsets.fromLTRB(isLabel ? 3 : 0, isHeader ? 0 : 6, trailing ? 3 : 0, isHeader ? 0 : 6),
+        padding: EdgeInsets.fromLTRB(
+          isLabel ? AppSpacing.tiny : 0,
+          isHeader ? 0 : AppSpacing.small,
+          trailing ? AppSpacing.tiny : 0,
+          isHeader ? 0 : AppSpacing.small,
+        ),
         child: Text(
           text,
           textAlign: isLabel ? TextAlign.left : TextAlign.center,
@@ -1570,16 +1575,16 @@ class _GameDialogHltb extends StatelessWidget {
         _DialogSection(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
-            spacing: 12.0,
+            spacing: AppSpacing.medium,
             children: [
-              const Row(spacing: 12, children: [
-                Icon(Icons.timer, size: 18),
+              const Row(spacing: AppSpacing.medium, children: [
+                Icon(Icons.timer, size: AppIconSize.medium),
                 Text('Tiempos Estimados (HowLongToBeat)', style: TextStyle(fontWeight: FontWeight.w600)),
               ]),
               Table(
                 border: TableBorder(
                   top: borderSide, right: borderSide, bottom: borderSide, left: borderSide,
-                  horizontalInside: borderSide, borderRadius: BorderRadius.circular(6),
+                  horizontalInside: borderSide, borderRadius: AppRadius.small,
                 ),
                 columnWidths: const {
                   0: FlexColumnWidth(1.4),
@@ -1658,16 +1663,16 @@ class _GameDialogButtons extends StatelessWidget {
     }
 
     return Wrap(
-      spacing: 6,
-      runSpacing: 6,
+      spacing: AppSpacing.small,
+      runSpacing: AppSpacing.small,
       children: [
         OutlinedButton.icon(
-          icon: const Icon(Icons.refresh, size: 12),
+          icon: const Icon(Icons.refresh, size: AppIconSize.small),
           label: const Text('Steam'),
           style: OutlinedButton.styleFrom(
-            shape: _roundedShape, visualDensity: VisualDensity.compact,
+            shape: AppRadius.smallShape, visualDensity: VisualDensity.compact,
             textStyle: const TextStyle(fontWeight: FontWeight.bold),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            padding: AppInsets.control,
           ),
           onPressed: () => refetch(
             (g) => context.read<HomeCubit>().refetchSteamForGame(g),
@@ -1675,12 +1680,12 @@ class _GameDialogButtons extends StatelessWidget {
           ),
         ),
         OutlinedButton.icon(
-          icon: const Icon(Icons.refresh, size: 12),
+          icon: const Icon(Icons.refresh, size: AppIconSize.small),
           label: const Text('GFN'),
           style: OutlinedButton.styleFrom(
-            shape: _roundedShape, visualDensity: VisualDensity.compact,
+            shape: AppRadius.smallShape, visualDensity: VisualDensity.compact,
             textStyle: const TextStyle(fontWeight: FontWeight.bold),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            padding: AppInsets.control,
           ),
           onPressed: () => refetch(
             (g) => context.read<HomeCubit>().refetchGfnForGame(g),
@@ -1688,12 +1693,12 @@ class _GameDialogButtons extends StatelessWidget {
           ),
         ),
         OutlinedButton.icon(
-          icon: const Icon(Icons.refresh, size: 12),
+          icon: const Icon(Icons.refresh, size: AppIconSize.small),
           label: const Text('HLTB'),
           style: OutlinedButton.styleFrom(
-            shape: _roundedShape, visualDensity: VisualDensity.compact,
+            shape: AppRadius.smallShape, visualDensity: VisualDensity.compact,
             textStyle: const TextStyle(fontWeight: FontWeight.bold),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            padding: AppInsets.control,
           ),
           onPressed: () => refetch(
             (g) => context.read<HomeCubit>().refetchHltbForGame(g),
@@ -1719,9 +1724,9 @@ class _ReadOnlyRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
-      spacing: 6,
+      spacing: AppSpacing.small,
       children: [
-        Icon(icon, size: 18),
+        Icon(icon, size: AppIconSize.medium),
         Text(label),
         Expanded(
           child: Text(
@@ -1752,9 +1757,9 @@ class _DropdownRow<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
-      spacing: 6,
+      spacing: AppSpacing.small,
       children: [
-        Icon(icon, size: 18),
+        Icon(icon, size: AppIconSize.medium),
         Text(label),
         Expanded(
           child: DropdownButtonHideUnderline(
@@ -1762,7 +1767,7 @@ class _DropdownRow<T> extends StatelessWidget {
               isExpanded: true,
               isDense: true,
               iconSize: 18,
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: AppRadius.small,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold),
               value: value,
               hint: const Text('Sin datos'),
@@ -1785,16 +1790,16 @@ class _InfoChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: AppInsets.control,
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: AppRadius.small,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
-        spacing: 6,
+        spacing: AppSpacing.small,
         children: [
-          Icon(icon, size: 12),
+          Icon(icon, size: AppIconSize.small),
           Text(label, style: Theme.of(context).textTheme.bodySmall),
         ],
       ),
@@ -1865,8 +1870,8 @@ class _UserNoteFieldState extends State<_UserNoteField> {
         maxLength: 126,
         decoration: InputDecoration(
           labelText: 'Nota rápida',
-          prefixIcon: const Icon(Icons.edit_note, size: 24),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+          prefixIcon: const Icon(Icons.edit_note, size: AppIconSize.large),
+          border: OutlineInputBorder(borderRadius: AppRadius.small),
         ),
         onChanged: (val) {
           _pendingSave = true;
@@ -1896,7 +1901,7 @@ Wrap _triFilterWrap({
         onSelected: (v) { if (v) onSelected(option); },
       );
   return Wrap(
-    spacing: 6, runSpacing: 6,
+    spacing: AppSpacing.small, runSpacing: AppSpacing.small,
     children: [
       chip('Todos', TriFilter.all),
       chip(yesLabel, TriFilter.yes),
@@ -1955,13 +1960,13 @@ class _InteractionFilterGroup extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
-      spacing: 6,
+      spacing: AppSpacing.small,
       children: [
         Text(title, style: Theme.of(context).textTheme.titleMedium),
         _triFilterWrap(value: filter, yesLabel: yesLabel, noLabel: noLabel, onSelected: onFilterChanged),
         if (filter != TriFilter.no)
           Wrap(
-            spacing: 6, runSpacing: 6,
+            spacing: AppSpacing.small, runSpacing: AppSpacing.small,
             children: [
               for (final exp in ExperienceFilter.values)
                 ChoiceChip(
@@ -1986,7 +1991,7 @@ class _SliderDistributionChips extends StatelessWidget {
   Widget build(BuildContext context) {
     final current = context.select((HomeCubit c) => c.state.sliderDistribution);
     return Wrap(
-      spacing: 6, runSpacing: 6,
+      spacing: AppSpacing.small, runSpacing: AppSpacing.small,
       children: [
         for (final dist in SliderDistribution.values)
           ChoiceChip(
@@ -2018,7 +2023,7 @@ class _SearchField extends StatelessWidget {
             hintText: 'Buscar título...',
             prefixIcon: const Icon(Icons.search),
             isDense: true,
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+            border: OutlineInputBorder(borderRadius: AppRadius.small),
             suffixIcon: value.text.isNotEmpty
                 ? IconButton(
                     icon: const Icon(Icons.clear),
@@ -2054,7 +2059,7 @@ class _ProfileManagerState extends State<_ProfileManager> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
-      spacing: 6,
+      spacing: AppSpacing.small,
       children: [
         Text('Perfil de filtros', style: Theme.of(context).textTheme.titleMedium),
         BlocBuilder<HomeCubit, HomeState>(
@@ -2063,7 +2068,7 @@ class _ProfileManagerState extends State<_ProfileManager> {
             final profiles = state.filterProfiles;
             final profileExists = profiles.containsKey(_profileName.trim());
             return Row(
-              spacing: 6,
+              spacing: AppSpacing.small,
               children: [
                 Expanded(
                   child: Autocomplete<String>(
@@ -2084,7 +2089,7 @@ class _ProfileManagerState extends State<_ProfileManager> {
                         decoration: InputDecoration(
                           labelText: 'Nombre del perfil',
                           isDense: true,
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                          border: OutlineInputBorder(borderRadius: AppRadius.small),
                         ),
                       );
                     },
@@ -2137,8 +2142,8 @@ class _HltbRefreshControls extends StatelessWidget {
   Widget build(BuildContext context) {
     final countsDays = context.select((HomeCubit c) => c.state.refreshIntervalDays > 0);
     return Wrap(
-      spacing: 12,
-      runSpacing: 6,
+      spacing: AppSpacing.medium,
+      runSpacing: AppSpacing.small,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         _DaysStepper(
@@ -2174,8 +2179,8 @@ class _SteamLibraryCheckControls extends StatelessWidget {
   Widget build(BuildContext context) {
     final countsDays = context.select((HomeCubit c) => c.state.steamCheckDays > 0);
     return Wrap(
-      spacing: 12,
-      runSpacing: 6,
+      spacing: AppSpacing.medium,
+      runSpacing: AppSpacing.small,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         _DaysStepper(
@@ -2396,7 +2401,7 @@ class _DaysStepperState extends State<_DaysStepper> {
 
     final baseBorder = OutlineInputBorder(
       gapPadding: 0,
-      borderRadius: const BorderRadius.all(Radius.circular(8)),
+      borderRadius: AppRadius.small,
       borderSide: BorderSide(color: cs.outlineVariant), 
     );
 
@@ -2427,7 +2432,7 @@ class _DaysStepperState extends State<_DaysStepper> {
             children: [
               _HoldRepeatButton(
                 tooltip: 'Menos días',
-                icon: Icon(Icons.remove, size: 18, color: cs.onSurfaceVariant),
+                icon: Icon(Icons.remove, size: AppIconSize.medium, color: cs.onSurfaceVariant),
                 onStep: (magnitude) => _bump(-magnitude),
               ),
               SizedBox(
@@ -2464,7 +2469,7 @@ class _DaysStepperState extends State<_DaysStepper> {
                 ),
               _HoldRepeatButton(
                 tooltip: 'Más días',
-                icon: Icon(Icons.add, size: 18, color: cs.onSurfaceVariant),
+                icon: Icon(Icons.add, size: AppIconSize.medium, color: cs.onSurfaceVariant),
                 onStep: (magnitude) => _bump(magnitude),
               ),
             ],
@@ -2502,7 +2507,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
-      spacing: 6,
+      spacing: AppSpacing.small,
       children: [
         Text(title, style: Theme.of(context).textTheme.titleMedium),
         child,
@@ -2524,7 +2529,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
-          spacing: 18,
+          spacing: AppSpacing.large,
           children: [
             _ProfileManager(searchController: _searchCtrl),
 
@@ -2536,7 +2541,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
             _buildGroup(
               'Idiomas',
               Wrap(
-                spacing: 6, runSpacing: 6,
+                spacing: AppSpacing.small, runSpacing: AppSpacing.small,
                 children: GameLanguage.values.map((lang) => _LanguageFilterChip(language: lang)).toList(),
               ),
             ),
@@ -2544,7 +2549,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
             _buildGroup(
               'Solitario',
               Wrap(
-                spacing: 6, runSpacing: 6,
+                spacing: AppSpacing.small, runSpacing: AppSpacing.small,
                 children: SpType.values.map((sp) => _SpTypeFilterChip(spType: sp)).toList(),
               ),
             ),
@@ -2552,7 +2557,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
             _buildGroup(
               'VR',
               Wrap(
-                spacing: 6, runSpacing: 6,
+                spacing: AppSpacing.small, runSpacing: AppSpacing.small,
                 children: VrSupport.values.map((vr) => _VrFilterChip(vrSupport: vr)).toList(),
               ),
             ),
@@ -2633,7 +2638,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
             _buildGroup(
               'Otras características',
               Wrap(
-                spacing: 6, runSpacing: 6,
+                spacing: AppSpacing.small, runSpacing: AppSpacing.small,
                 children: [
                   _BooleanFilterChip(
                     label: 'Incluir aplicaciones',
@@ -2670,7 +2675,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
               builder: (ctx, state) => Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
-                spacing: 6,
+                spacing: AppSpacing.small,
                 children: [
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.center,
@@ -2685,7 +2690,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
                         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         avatar: Icon(
                           state.groupByStatus ? Icons.layers : Icons.layers_outlined,
-                          size: 18,
+                          size: AppIconSize.medium,
                         ),
                         onSelected: (v) => ctx.read<HomeCubit>().updateFlag(groupByStatus: v),
                       ),
@@ -2695,7 +2700,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
                 ],
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.medium),
           ],
         ),
       ),
@@ -2819,8 +2824,8 @@ class _StatusChipGridState extends State<_StatusChipGrid> {
   @override
   Widget build(BuildContext context) {
     return Wrap(
-      spacing: 6,
-      runSpacing: 6,
+      spacing: AppSpacing.small,
+      runSpacing: AppSpacing.small,
       children: [
         for (final entry in _preview)
           _DraggableStatusChip(
@@ -2912,10 +2917,10 @@ class _StatusFilterChip extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(_statusName(status)),
-          const SizedBox(width: 3),
+          const SizedBox(width: AppSpacing.tiny),
           Icon(
             Icons.drag_indicator,
-            size: 16,
+            size: AppIconSize.medium,
             color: cs.onSurface.withValues(alpha: 0.45),
           ),
         ],
@@ -3177,7 +3182,7 @@ class _SliderControlsState extends State<_SliderControls> {
 
           return Column(
             mainAxisSize: MainAxisSize.min,
-            spacing: 6,
+            spacing: AppSpacing.small,
             children: [
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -3230,7 +3235,7 @@ class _SliderControlsState extends State<_SliderControls> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.baseline,
         textBaseline: TextBaseline.alphabetic,
-        spacing: 6,
+        spacing: AppSpacing.small,
         children: [
           IntrinsicWidth(
             child: TextField(
