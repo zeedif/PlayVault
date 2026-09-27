@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
@@ -135,10 +136,13 @@ class HomeState({
   final String? steamId,
   final String? steamPersona,
   final int? steamSyncedAt,
+  final int steamCheckDays = SyncInterval.onOpen,
+  final bool steamCheckByCalendar = false,
 
   // HLTB — ajustes de sincronización
   final int refreshIntervalDays = 30, // Días tras los cuales se re-consulta HLTB de cada juego.
   final bool hltbAutoRefreshOnDetail = false, // Consultar HLTB al abrir el detalle de un juego.
+  final bool hltbRefreshByCalendar = false,
 
   // Ordenación
   final String sortBy = 'name',
@@ -209,8 +213,11 @@ class HomeState({
     // Único camino para volver los campos de Steam a su valor por defecto: el `??`
     // del resto de copyWith no permite reasignar a null.
     bool resetSteam = false,
+    int? steamCheckDays,
+    bool? steamCheckByCalendar,
     int? refreshIntervalDays,
     bool? hltbAutoRefreshOnDetail,
+    bool? hltbRefreshByCalendar,
     String? sortBy,
     bool? sortAsc,
     bool? groupByStatus,
@@ -249,8 +256,11 @@ class HomeState({
     steamId: resetSteam ? null : (steamId ?? this.steamId),
     steamPersona: resetSteam ? null : (steamPersona ?? this.steamPersona),
     steamSyncedAt: resetSteam ? null : (steamSyncedAt ?? this.steamSyncedAt),
+    steamCheckDays: steamCheckDays ?? this.steamCheckDays,
+    steamCheckByCalendar: steamCheckByCalendar ?? this.steamCheckByCalendar,
     refreshIntervalDays: refreshIntervalDays ?? this.refreshIntervalDays,
     hltbAutoRefreshOnDetail: hltbAutoRefreshOnDetail ?? this.hltbAutoRefreshOnDetail,
+    hltbRefreshByCalendar: hltbRefreshByCalendar ?? this.hltbRefreshByCalendar,
     sortBy: sortBy ?? this.sortBy,
     sortAsc: sortAsc ?? this.sortAsc,
     groupByStatus: groupByStatus ?? this.groupByStatus,
@@ -293,9 +303,12 @@ class HomeState({
         other.steamId == steamId &&
         other.steamPersona == steamPersona &&
         other.steamSyncedAt == steamSyncedAt &&
+        other.steamCheckDays == steamCheckDays &&
+        other.steamCheckByCalendar == steamCheckByCalendar &&
         mapEquals(other.filterProfiles, filterProfiles) &&
         other.refreshIntervalDays == refreshIntervalDays &&
         other.hltbAutoRefreshOnDetail == hltbAutoRefreshOnDetail &&
+        other.hltbRefreshByCalendar == hltbRefreshByCalendar &&
         other.sortBy == sortBy &&
         other.sortAsc == sortAsc &&
         other.groupByStatus == groupByStatus &&
@@ -336,9 +349,12 @@ class HomeState({
     steamId,
     steamPersona,
     steamSyncedAt,
+    steamCheckDays,
+    steamCheckByCalendar,
     filterProfiles.length,
     refreshIntervalDays,
     hltbAutoRefreshOnDetail,
+    hltbRefreshByCalendar,
     sortBy,
     sortAsc,
     groupByStatus,
@@ -385,9 +401,26 @@ class HomeCubit extends Cubit<HomeState> {
   // que sí los declara, solo acepta un appid por llamada.
   final List<String> _achievementsQueue = [];
   bool _isSteamQueueRunning = false;
+  // Pedidos juego a juego desde la interfaz: van antes que la cola general.
+  final List<String> _hltbPriorityQueue = [];
+  // Ordenada por antigüedad de la última consulta; ver [_enqueueHltbByAge].
   final List<String> _hltbQueue = [];
   bool _isHltbQueueRunning = false;
   bool _isGfnQueueRunning = false;
+  // Pasada de GFN pedida mientras otra corría; `true` si debe revisar todos los juegos.
+  bool? _gfnQueuedPass;
+  ({Set<int> steamIds, Set<String> titleKeys})? _gfnCatalog;
+  bool _isAutoSyncRunning = false;
+
+  /// NVIDIA amplía el catálogo cada semana: refrescarlo antes rara vez aporta nada.
+  static const Duration _gfnCatalogTtl = Duration(days: 7);
+
+  // Sin broadcast: retiene lo importado antes de que la vista llegue a suscribirse.
+  final StreamController<SteamSync> _steamAutoSyncEvents = StreamController();
+
+  /// Resultados de la importación automática de Steam que merecen aviso: juegos nuevos
+  /// o un fallo que no se arregla solo (clave, privacidad). La red caída se calla.
+  Stream<SteamSync> get steamAutoSyncEvents => _steamAutoSyncEvents.stream;
 
   // API key de Steam: fuera de HomeState para que no viaje en cada emit ni entre
   // en los perfiles de filtro. Se persiste junto al resto de la cuenta en db.json.
@@ -529,6 +562,13 @@ class HomeCubit extends Cubit<HomeState> {
     if (s.steamSyncedAt != null) 'steamSyncedAt': s.steamSyncedAt,
   };
 
+  /// Fuera de [_extractFilters]: cargar un perfil de filtro no debe cambiar cuándo se sincroniza.
+  Map<String, dynamic> _extractSyncSettings(HomeState s) => {
+    'steamCheckDays': s.steamCheckDays,
+    'steamCheckByCalendar': s.steamCheckByCalendar,
+    'hltbRefreshByCalendar': s.hltbRefreshByCalendar,
+  };
+
   HomeState _restoreFilters(HomeState current, Map<String, dynamic> profile) => current.copyWith(
       searchQuery: profile['searchQuery'] as String? ?? current.searchQuery,
       visibleLanguages: _parseEnumSet(GameLanguage.values, profile['visibleLanguages']) ?? current.visibleLanguages,
@@ -598,14 +638,13 @@ class HomeCubit extends Cubit<HomeState> {
   }
 
   /// Carga el estado inicial desde disco. Los archivos de juego individuales en `games/`,
-  /// la configuración en `db.json` y la comprobación del catálogo GFN son fuentes de disco
-  /// independientes: se lanzan a la vez y se esperan después, de modo que el arranque cueste
-  /// el máximo de las tres esperas de I/O en lugar de su suma. Re-encola en una única pasada
-  /// los juegos con fetches pendientes (Steam + HLTB) y descarga el catálogo GFN si no existe.
+  /// la configuración en `db.json` y el catálogo GFN son fuentes de disco independientes:
+  /// se lanzan a la vez y se esperan después, de modo que el arranque cueste el máximo de
+  /// las tres esperas de I/O en lugar de su suma. Todo lo que pide red se delega en [runAutoSync].
   Future<void> _loadLocalState() async {
     final gamesFuture = _loadGamesFromDisk();
     final settingsFuture = _loadSettingsFromDisk();
-    final gfnExistsFuture = _gfnLocalFile.then((f) => f.exists());
+    final gfnCatalogFuture = _readGfnCatalog();
 
     final loadedGames = await gamesFuture;
     _gamesById.addAll(loadedGames);
@@ -619,6 +658,8 @@ class HomeCubit extends Cubit<HomeState> {
         steamId: settings['steamId'] as String?,
         steamPersona: settings['steamPersona'] as String?,
         steamSyncedAt: (settings['steamSyncedAt'] as num?)?.toInt(),
+        steamCheckDays: (settings['steamCheckDays'] as num?)?.toInt().clamp(SyncInterval.onOpen, SyncInterval.maxDays),
+        steamCheckByCalendar: settings['steamCheckByCalendar'] as bool?,
         visibleLanguages: _parseEnumSet(GameLanguage.values, settings['visibleLanguages']),
         visibleSpTypes: _parseEnumSet(SpType.values, settings['visibleSpTypes']),
         visibleVrTypes: _parseEnumSet(VrSupport.values, settings['visibleVrTypes']),
@@ -641,37 +682,98 @@ class HomeCubit extends Cubit<HomeState> {
         esDePath: settings['esDePath'] as String?,
         refreshIntervalDays: (settings['refreshIntervalDays'] as num?)?.toInt(),
         hltbAutoRefreshOnDetail: settings['hltbAutoRefreshOnDetail'] as bool?,
+        hltbRefreshByCalendar: settings['hltbRefreshByCalendar'] as bool?,
         currentMinBytes: (settings['currentMinBytes'] as num?)?.toDouble(),
         currentMaxBytes: (settings['currentMaxBytes'] as num?)?.toDouble(),
         filterProfiles: _parseFilterProfiles(settings['filterProfiles']),
       );
     }
 
-    for (final game in _gamesById.values) {
-      // Reanudar pendientes de Steam que fallaron por red (solo con idSteam).
-      if (game.idSteam != null && !game.hasFetchedSteam) _enqueueForSteam(game.internalId);
-      // Encola para HLTB los juegos nunca consultados o cuya última consulta superó
-      // el intervalo configurado, ya con refreshIntervalDays cargado desde settings.
-      if (game.needsHltbRefresh(newState.refreshIntervalDays)) _enqueueForHltb(game.internalId);
-    }
-
     newState = _applyFilters(_updateLimits(newState)).copyWith(isLoading: false);
     emit(newState);
 
-    _startSteamQueue();
-    _startHltbQueue();
+    _gfnCatalog = await gfnCatalogFuture;
+    // Revisar todos cuesta solo memoria y escribe únicamente lo que cambia, así que
+    // también repara una pasada anterior que se cortara a mitad de escritura.
+    _startGfnComparisonQueue(all: true);
+    runAutoSync();
+  }
 
-    if (!await gfnExistsFuture) {
-      fetchGeforceNowDatabase();
-    } else {
-      _startGfnComparisonQueue();
+  // ─── SINCRONIZACIÓN AUTOMÁTICA ───
+
+  /// Puesta al día sin intervención, al abrir la app y al volver a ella. Cada fuente
+  /// decide por su propia marca de tiempo si le toca, así que repetirla solo gasta red
+  /// cuando algo caducó.
+  Future<void> runAutoSync() async {
+    if (_isAutoSyncRunning || state.isLoading) return;
+    _isAutoSyncRunning = true;
+    try {
+      for (final g in _gamesById.values) {
+        if (g.idSteam != null && !g.hasFetchedSteam) _enqueueForSteam(g.internalId);
+      }
+      _startSteamQueue();
+
+      final gfn = _refreshGfnCatalogIfDue();
+      // Antes que HLTB, para que los juegos recién importados encabecen su cola.
+      await _syncSteamLibraryIfDue();
+      _enqueueHltbRefreshes();
+      _startHltbQueue();
+      await gfn;
+    } finally {
+      _isAutoSyncRunning = false;
     }
+  }
+
+  Future<void> _syncSteamLibraryIfDue() async {
+    if (state.steamId == null || _steamApiKey == null) return;
+    final last = switch (state.steamSyncedAt) {
+      final int ts => DateTime.fromMillisecondsSinceEpoch(ts * 1000),
+      null => null,
+    };
+    if (!SyncInterval.isDue(
+      state.steamCheckDays,
+      byCalendar: state.steamCheckByCalendar,
+      last: last,
+      now: DateTime.now(),
+    )) {
+      return;
+    }
+
+    final result = await syncSteamLibrary();
+    if (_steamAutoSyncEvents.isClosed) return;
+    switch (result) {
+      case SteamSyncDone(:final added) when added > 0:
+      case SteamSyncFailed(reason: SteamFailure.badKey || SteamFailure.privateProfile || SteamFailure.emptyLibrary):
+        _steamAutoSyncEvents.add(result);
+      case SteamSyncDone() || SteamSyncFailed():
+        break;
+    }
+  }
+
+  Future<void> _refreshGfnCatalogIfDue() async {
+    final file = await _gfnLocalFile;
+    if (await file.exists() && DateTime.now().difference(await file.lastModified()) < _gfnCatalogTtl) return;
+    await fetchGeforceNowDatabase();
+  }
+
+  void _enqueueHltbRefreshes() => _enqueueHltbByAge(_gamesById.values
+      .where((g) => g.needsHltbRefresh(state.refreshIntervalDays, byCalendar: state.hltbRefreshByCalendar))
+      .map((g) => g.internalId));
+
+  @override
+  Future<void> close() {
+    _steamAutoSyncEvents.close();
+    return super.close();
   }
 
   Future<void> _saveLocalState(HomeState currentState) async {
     final file = await _localFile;
     await file.writeAsString(jsonEncode({
-      'settings': {..._extractFilters(currentState), ..._extractSteamAccount(currentState)},
+      'settings': {
+        ..._extractFilters(currentState),
+        ..._extractSteamAccount(currentState),
+        ..._extractSyncSettings(currentState),
+      },
     }));
   }
 
@@ -686,10 +788,10 @@ class HomeCubit extends Cubit<HomeState> {
   /// [2] Escritura a disco fire-and-forget, serializada por archivo.
   /// Las writes al mismo internalId se encadenan (nunca solapan).
   /// Las writes a archivos distintos corren en paralelo de forma natural.
-  void _writeToDisk(String internalId, Map<String, dynamic> patch) {
-    if (internalId.isEmpty) return;
+  Future<void> _writeToDisk(String internalId, Map<String, dynamic> patch) {
+    if (internalId.isEmpty) return Future.value();
     final prev = _writeChain[internalId] ?? Future<void>.value();
-    _writeChain[internalId] = prev.then((_) => _doWriteToDisk(internalId, patch));
+    return _writeChain[internalId] = prev.then((_) => _doWriteToDisk(internalId, patch));
   }
 
   Future<void> _doWriteToDisk(String internalId, Map<String, dynamic> patch) async {
@@ -879,8 +981,10 @@ class HomeCubit extends Cubit<HomeState> {
 
     for (final g in gamesToSave) {
       if (g.idSteam != null && !g.hasFetchedSteam) _enqueueForSteam(g.internalId);
-      if (g.needsHltbRefresh(state.refreshIntervalDays)) _enqueueForHltb(g.internalId);
     }
+    _enqueueHltbByAge(gamesToSave
+        .where((g) => g.needsHltbRefresh(state.refreshIntervalDays, byCalendar: state.hltbRefreshByCalendar))
+        .map((g) => g.internalId));
 
     final newState = _applyFilters(_updateLimits(state));
     emit(newState);
@@ -924,6 +1028,7 @@ class HomeCubit extends Cubit<HomeState> {
     _steamQueue.clear();
     _achievementsQueue.clear();
     _hltbQueue.clear();
+    _hltbPriorityQueue.clear();
     _writeChain.clear();
     _gamesById.clear();
     _sizeCache = null;
@@ -1040,13 +1145,13 @@ class HomeCubit extends Cubit<HomeState> {
   /// Descarga el catálogo de GeForce NOW vía GraphQL paginado y persiste en `gfn_db.json`
   /// los appids de Steam y claves de título de las entradas de tipo GAME. Solo escribe si
   /// la paginación llegó al final, para no marcar como no disponibles juegos que sí lo están.
-  /// Marca todos los juegos como pendientes de comparación y dispara `_startGfnComparisonQueue`.
+  /// Después recompara la biblioteca entera contra el catálogo nuevo.
   Future<void> fetchGeforceNowDatabase() async {
     if (state.isFetchingGfnDb) return;
     emit(state.copyWith(isFetchingGfnDb: true));
 
+    final client = HttpClient();
     try {
-      final client = HttpClient();
       String afterValue = '';
       bool hasNextPage = true;
       bool reachedEnd = false;
@@ -1094,107 +1199,113 @@ class HomeCubit extends Cubit<HomeState> {
         }
         reachedEnd = !hasNextPage;
       }
-      client.close();
 
       if (reachedEnd && steamIdsInGfn.isNotEmpty) {
         await (await _gfnLocalFile).writeAsString(jsonEncode({
           'steam_ids': steamIdsInGfn.toList(),
           'title_keys': titleKeysInGfn.toList(),
         }));
-        // Solo memoria: _startGfnComparisonQueue escribirá los valores correctos al disco.
-        for (final id in _gamesById.keys.toList()) {
-          _gamesById[id] = _gamesById[id]!.updateFromJson({'has_fetched_gfn': false});
-        }
-        emit(_applyFilters(state));
-        _startGfnComparisonQueue();
+        _gfnCatalog = (steamIds: steamIdsInGfn, titleKeys: titleKeysInGfn);
+        _startGfnComparisonQueue(all: true);
       }
     } catch (e) {
       debugPrint('Error obteniendo GFN DB: $e');
+    } finally {
+      client.close();
     }
 
     emit(state.copyWith(isFetchingGfnDb: false));
   }
 
-  /// Compara cada juego con `hasFetchedGfn=false` contra el catálogo local de GFN,
-  /// aplica todos los parches en un único emit y los persiste en lotes paralelos cediendo
-  /// el event loop entre cada lote.
+  /// Catálogo guardado en disco, o null si aún no se ha descargado ninguno.
+  Future<({Set<int> steamIds, Set<String> titleKeys})?> _readGfnCatalog() async {
+    final file = await _gfnLocalFile;
+    if (!await file.exists()) return null;
+    try {
+      return switch (jsonDecode(await file.readAsString())) {
+        {'steam_ids': final List ids, 'title_keys': final List keys} => (
+          steamIds: ids.map((e) => int.tryParse(e.toString())).whereType<int>().toSet(),
+          titleKeys: keys.map((e) => e.toString()).toSet(),
+        ),
+        // Catálogo guardado por versiones anteriores: lista plana de appids, sin títulos.
+        final List ids => (
+          steamIds: ids.map((e) => int.tryParse(e.toString())).whereType<int>().toSet(),
+          titleKeys: <String>{},
+        ),
+        _ => null,
+      };
+    } catch (e) {
+      debugPrint('Error leyendo el catálogo GFN: $e');
+      return null;
+    }
+  }
+
+  /// Compara contra el catálogo los juegos con `hasFetchedGfn=false`, o todos con [all].
+  /// Una petición que llega mientras otra pasada corre se acumula y se atiende al acabar.
+  Future<void> _startGfnComparisonQueue({bool all = false}) async {
+    if (_isGfnQueueRunning) {
+      _gfnQueuedPass = (_gfnQueuedPass ?? false) || all;
+      return;
+    }
+    _isGfnQueueRunning = true;
+    try {
+      bool? pass = all;
+      while (pass != null) {
+        await _compareWithGfnCatalog(all: pass);
+        pass = _gfnQueuedPass;
+        _gfnQueuedPass = null;
+      }
+    } catch (e) {
+      debugPrint('Error en cola de comparación GFN: $e');
+    } finally {
+      _isGfnQueueRunning = false;
+    }
+  }
+
+  /// Aplica los cambios en un único emit y solo escribe los juegos cuyo valor cambia, así
+  /// que refrescar el catálogo apenas toca disco aunque la biblioteca sea grande.
   ///
   /// Un juego con appid se resuelve solo por appid: jugarlo en GFN exige que la variante
   /// de Steam esté en el catálogo, y el título por sí solo daría falsos positivos con los
   /// juegos que GFN sirve únicamente desde otra tienda. Los que no tienen appid se
   /// resuelven por título normalizado.
-  Future<void> _startGfnComparisonQueue() async {
-    if (_isGfnQueueRunning) return;
-    final file = await _gfnLocalFile;
-    if (!await file.exists()) return;
-    _isGfnQueueRunning = true;
+  Future<void> _compareWithGfnCatalog({required bool all}) async {
+    final catalog = _gfnCatalog;
+    if (catalog == null || catalog.steamIds.isEmpty) return;
 
-    try {
-      final (gfnSteamIds, gfnTitleKeys) = switch (jsonDecode(await file.readAsString())) {
-        {'steam_ids': final List ids, 'title_keys': final List keys} => (
-          ids.map((e) => int.tryParse(e.toString())).whereType<int>().toSet(),
-          keys.map((e) => e.toString()).toSet(),
-        ),
-        // Catálogo guardado por versiones anteriores: lista plana de appids, sin títulos.
-        final List ids => (
-          ids.map((e) => int.tryParse(e.toString())).whereType<int>().toSet(),
-          <String>{},
-        ),
-        _ => (<int>{}, <String>{}),
+    final patches = <String, Map<String, dynamic>>{};
+    for (final g in _gamesById.values) {
+      if (!all && g.hasFetchedGfn) continue;
+      final inGfn = switch (g) {
+        _ when g.idSteam != null => catalog.steamIds.contains(g.idSteam),
+        _ when g.name != null && catalog.titleKeys.isNotEmpty =>
+            catalog.titleKeys.contains(HltbService.nameKey(g.name)),
+        _ => g.isGeforceNow,
       };
-
-      final pendingPatches = <String, Map<String, dynamic>>{
-        if (gfnSteamIds.isNotEmpty)
-          for (final g in _gamesById.values.where((g) => !g.hasFetchedGfn))
-            g.internalId: {
-              'is_geforce_now': switch (g) {
-                _ when g.idSteam != null => gfnSteamIds.contains(g.idSteam),
-                _ when g.name != null && gfnTitleKeys.isNotEmpty =>
-                    gfnTitleKeys.contains(HltbService.nameKey(g.name)),
-                _ => g.isGeforceNow,
-              },
-              'has_fetched_gfn': true
-            },
+      final patch = {
+        if (inGfn != g.isGeforceNow) 'is_geforce_now': inGfn,
+        if (!g.hasFetchedGfn) 'has_fetched_gfn': true,
       };
-
-      if (pendingPatches.isNotEmpty) {
-        for (final entry in pendingPatches.entries) {
-          final g = _gamesById[entry.key];
-          if (g != null) _gamesById[entry.key] = g.updateFromJson(entry.value);
-        }
-        emit(_applyFilters(state));
-
-        final dir = await _gamesDir;
-        final patchList = pendingPatches.entries.toList();
-        const batchSize = 50;
-        for (int i = 0; i < patchList.length; i += batchSize) {
-          final end = (i + batchSize).clamp(0, patchList.length);
-          await Future.wait(patchList.sublist(i, end).map((entry) async {
-            final filename = _gameFiles[entry.key];
-            if (filename == null) return;
-            final gFile = File('${dir.path}/$filename');
-            Map<String, dynamic> jsonToSave;
-            if (await gFile.exists()) {
-              try {
-                jsonToSave = jsonDecode(await gFile.readAsString()) as Map<String, dynamic>;
-                jsonToSave.addAll(entry.value);
-              } catch (_) {
-                jsonToSave = _gamesById[entry.key]?.toJson() ?? entry.value;
-              }
-            } else {
-              jsonToSave = _gamesById[entry.key]?.toJson() ?? entry.value;
-            }
-            await gFile.writeAsString(jsonEncode(jsonToSave));
-          }));
-          // Ceder el event loop entre lotes para que Flutter pueda renderizar frames
-          await Future.delayed(Duration.zero);
-        }
-      }
-    } catch (e) {
-      debugPrint('Error en cola de comparación GFN: $e');
+      if (patch.isNotEmpty) patches[g.internalId] = patch;
     }
+    if (patches.isEmpty) return;
 
-    _isGfnQueueRunning = false;
+    for (final MapEntry(key: id, value: patch) in patches.entries) {
+      if (_gamesById[id] case final g?) _gamesById[id] = g.updateFromJson(patch);
+    }
+    emit(_applyFilters(state));
+
+    final patchList = patches.entries.toList();
+    const batchSize = 50;
+    for (int i = 0; i < patchList.length; i += batchSize) {
+      final end = (i + batchSize).clamp(0, patchList.length);
+      // La biblioteca pudo vaciarse durante la espera: no se recrean archivos de juegos borrados.
+      await Future.wait(patchList.sublist(i, end)
+          .where((e) => _gamesById.containsKey(e.key))
+          .map((e) => _writeToDisk(e.key, e.value)));
+      // Ceder el event loop entre lotes para que Flutter pueda renderizar frames
+      await Future.delayed(Duration.zero);
+    }
   }
 
   // ─── COLA DE STEAM API ───
@@ -1471,28 +1582,46 @@ class HomeCubit extends Cubit<HomeState> {
 
   // ─── COLA DE HLTB API ───
 
-  void _enqueueForHltb(String internalId, {bool priority = false}) {
+  void _enqueueHltbFirst(String internalId) {
     _hltbQueue.remove(internalId);
-    priority ? _hltbQueue.insert(0, internalId) : _hltbQueue.add(internalId);
+    _hltbPriorityQueue
+      ..remove(internalId)
+      ..insert(0, internalId);
   }
+
+  /// Mantiene la cola general de la consulta más antigua a la más reciente, con los nunca
+  /// consultados delante. Como cada consulta sella su fecha, una cola cortada a medias
+  /// retoma en la siguiente apertura justo donde se quedó en lugar de repetir los mismos.
+  void _enqueueHltbByAge(Iterable<String> internalIds) {
+    final queued = {..._hltbQueue, ..._hltbPriorityQueue};
+    final fresh = internalIds.where(queued.add).toList();
+    if (fresh.isEmpty) return;
+    _hltbQueue
+      ..addAll(fresh)
+      ..sort((a, b) => (_gamesById[a]?.hltbFetchedAt ?? -1).compareTo(_gamesById[b]?.hltbFetchedAt ?? -1));
+  }
+
+  int get _pendingHltbCount => _hltbPriorityQueue.length + _hltbQueue.length;
 
   /// Procesa la cola de HLTB de forma secuencial: delega en `HltbService.fetchGameStats`
   /// y aplica el parche resultante leyendo siempre la versión más fresca del juego en memoria.
   Future<void> _startHltbQueue() async {
     if (_isHltbQueueRunning) return;
     _isHltbQueueRunning = true;
-    emit(state.copyWith(hltbQueueSize: _hltbQueue.length));
+    emit(state.copyWith(hltbQueueSize: _pendingHltbCount));
 
     // Dedup por id de HLTB dentro de esta pasada: si varios juegos comparten el mismo
     // id conocido de HLTB, se reutiliza la respuesta ya obtenida en vez de repetir la
     // petición (una sola consulta en lugar de una por juego).
     final sessionCache = <String, HltbStats>{};
 
-    while (_hltbQueue.isNotEmpty) {
-      final internalId = _hltbQueue.removeAt(0);
+    while (_pendingHltbCount > 0) {
+      final internalId = _hltbPriorityQueue.isNotEmpty
+          ? _hltbPriorityQueue.removeAt(0)
+          : _hltbQueue.removeAt(0);
       final game = _gamesById[internalId];
       if (game == null || (game.name == null && game.hltbStats?.id == null)) {
-        emit(state.copyWith(hltbQueueSize: _hltbQueue.length));
+        emit(state.copyWith(hltbQueueSize: _pendingHltbCount));
         continue;
       }
 
@@ -1533,7 +1662,7 @@ class HomeCubit extends Cubit<HomeState> {
         break;
       }
 
-      emit(_applyFilters(state.copyWith(hltbQueueSize: _hltbQueue.length)));
+      emit(_applyFilters(state.copyWith(hltbQueueSize: _pendingHltbCount)));
     }
 
     _isHltbQueueRunning = false;
@@ -1550,9 +1679,7 @@ class HomeCubit extends Cubit<HomeState> {
   }
 
   Future<void> refetchHltbAll() async {
-    for (final g in _gamesById.values) {
-      _enqueueForHltb(g.internalId);
-    }
+    _enqueueHltbByAge(_gamesById.keys);
     _startHltbQueue();
   }
 
@@ -1572,7 +1699,7 @@ class HomeCubit extends Cubit<HomeState> {
   }
 
   Future<void> refetchHltbForGame(Game game) async {
-    _enqueueForHltb(game.internalId, priority: true);
+    _enqueueHltbFirst(game.internalId);
     _startHltbQueue();
   }
 
@@ -1603,6 +1730,7 @@ class HomeCubit extends Cubit<HomeState> {
     _steamQueue.clear();
     _achievementsQueue.clear();
     _hltbQueue.clear();
+    _hltbPriorityQueue.clear();
     final file = await _localFile;
     if (await file.exists()) await file.delete();
     final gamesDir = await _gamesDir;
@@ -1647,6 +1775,9 @@ class HomeCubit extends Cubit<HomeState> {
     String? esDePath,
     int? refreshIntervalDays,
     bool? hltbAutoRefreshOnDetail,
+    bool? hltbRefreshByCalendar,
+    int? steamCheckDays,
+    bool? steamCheckByCalendar,
   }) {
     var newState = state.copyWith(
       includeSoftware: software,
@@ -1672,11 +1803,19 @@ class HomeCubit extends Cubit<HomeState> {
       esDePath: esDePath,
       refreshIntervalDays: refreshIntervalDays,
       hltbAutoRefreshOnDetail: hltbAutoRefreshOnDetail,
+      hltbRefreshByCalendar: hltbRefreshByCalendar,
+      steamCheckDays: steamCheckDays,
+      steamCheckByCalendar: steamCheckByCalendar,
     );
     if (binary != null) newState = _updateLimits(newState);
     newState = _applyFilters(newState);
+    final syncChanged = newState.steamCheckDays != state.steamCheckDays ||
+        newState.steamCheckByCalendar != state.steamCheckByCalendar ||
+        newState.refreshIntervalDays != state.refreshIntervalDays ||
+        newState.hltbRefreshByCalendar != state.hltbRefreshByCalendar;
     emit(newState);
     _saveLocalState(newState);
+    if (syncChanged) runAutoSync();
   }
 
   void toggleStatusFilter(GameStatus status, bool isEnabled) {
