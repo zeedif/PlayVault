@@ -367,7 +367,7 @@ class _SteamAccountDialogState extends State<_SteamAccountDialog> {
                   helperMaxLines: 2,
                   border: OutlineInputBorder(borderRadius: AppRadius.small),
                   suffixIcon: IconButton(
-                    icon: Icon(_obscureKey ? Icons.visibility_off : Icons.visibility, size: 20),
+                    icon: Icon(_obscureKey ? Icons.visibility_off : Icons.visibility, size: AppIconSize.medium),
                     tooltip: _obscureKey ? 'Mostrar' : 'Ocultar',
                     onPressed: () => setState(() => _obscureKey = !_obscureKey),
                   ),
@@ -376,7 +376,7 @@ class _SteamAccountDialogState extends State<_SteamAccountDialog> {
               Align(
                 alignment: Alignment.centerLeft,
                 child: TextButton.icon(
-                  icon: const Icon(Icons.vpn_key, size: 16),
+                  icon: const Icon(Icons.vpn_key, size: AppIconSize.medium),
                   label: const Text('Obtener una API key'),
                   onPressed: () async {
                     final uri = Uri.parse('https://steamcommunity.com/dev/apikey');
@@ -944,7 +944,7 @@ class _CompactControls extends StatelessWidget {
                 child: InputDecorator(
                   decoration: InputDecoration(
                     label: const Padding(
-                      padding: EdgeInsetsDirectional.symmetric(horizontal: 4),
+                      padding: EdgeInsetsDirectional.symmetric(horizontal: AppSpacing.tiny),
                       child: Text('Orden'),
                     ),
                     isDense: true,
@@ -2413,7 +2413,7 @@ class _DaysStepperState extends State<_DaysStepper> {
         child: InputDecorator(
           decoration: InputDecoration(
             label: Padding(
-              padding: const EdgeInsetsDirectional.symmetric(horizontal: 4),
+              padding: const EdgeInsetsDirectional.symmetric(horizontal: AppSpacing.tiny),
               child: Text(widget.label),
             ),
             filled: true,
@@ -2464,7 +2464,7 @@ class _DaysStepperState extends State<_DaysStepper> {
               ),
               if (special == null)
                 Padding(
-                  padding: const EdgeInsets.only(right: 2),
+                  padding: const EdgeInsets.only(right: AppSpacing.tiny),
                   child: Text(_days == 1 ? 'día' : 'días', style: numberStyle),
                 ),
               _HoldRepeatButton(
@@ -2521,10 +2521,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
     // No se suscribe a estado volátil ni hace setState al teclear: se ejecuta una vez al
     // abrir y cada grupo hijo gestiona su propio rebuild.
     return Padding(
-      padding: EdgeInsets.only(
-        left: 18.0, right: 18.0, top: 18.0,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 18.0,
-      ),
+      padding: AppInsets.allLarge + EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       child: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
