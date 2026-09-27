@@ -487,12 +487,14 @@ class HltbService {
     });
     if (body == null) return;
 
-    if (jsonDecode(body) case {
-      'token': final String token,
-      'hpKey': final String hpKey,
-      'hpVal': final String hpVal,
-    }) {
-      _authHeaders = {'Token': token, 'Hpkey': hpKey, 'Hpval': hpVal};
+    // `hpKey`/`hpVal` son opcionales: el token basta para buscar.
+    final json = jsonDecode(body);
+    if (json case {'token': final String token} when token.isNotEmpty) {
+      _authHeaders = {
+        'Token': token,
+        if (json case {'hpKey': final String k, 'hpVal': final String v}
+            when k.isNotEmpty && v.isNotEmpty) ...{'Hpkey': k, 'Hpval': v},
+      };
       _authExpiry = DateTime.now().add(_authTtl);
     }
   }
@@ -591,12 +593,11 @@ class HltbService {
     };
 
     if (_authHeaders case final auth?) {
-      payload[auth['Hpkey']!] = auth['Hpval']!;
-      headers.addAll({
-        'x-auth-token': auth['Token']!,
-        'x-hp-key': auth['Hpkey']!,
-        'x-hp-val': auth['Hpval']!,
-      });
+      headers['x-auth-token'] = auth['Token']!;
+      if (auth case {'Hpkey': final key, 'Hpval': final val}) {
+        payload[key] = val;
+        headers.addAll({'x-hp-key': key, 'x-hp-val': val});
+      }
     }
 
     return _post(Uri.parse('$_baseUrl$_currentEndpoint'), jsonEncode(payload), headers);
