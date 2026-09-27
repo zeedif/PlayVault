@@ -171,12 +171,14 @@ String _steamFailureMessage(SteamFailure reason) => switch (reason) {
   SteamFailure.busy => 'Ya hay una importación de Steam en curso.',
 };
 
+String _alreadyTracked(int n) => n == 1 ? 'uno ya estaba' : '$n ya estaban';
+
 String _steamSyncMessage(SteamSync result) => switch (result) {
-  SteamSyncFailed(:final reason) => _steamFailureMessage(reason),
-  SteamSyncDone(added: 0, updated: 0) => 'Steam: no se encontró ningún juego.',
-  SteamSyncDone(added: 0, :final updated) => 'Steam: sin novedades, los ${_games(updated)} ya estaban.',
+  SteamSyncFailed(:final reason) => 'No se pudo importar la biblioteca de Steam. ${_steamFailureMessage(reason)}',
+  SteamSyncDone(added: 0, :final updated) => 'Steam: ningún juego que importar, ${_alreadyTracked(updated)}.',
   SteamSyncDone(:final added, :final updated) =>
-    'Steam: ${_games(added)} añadidos${updated > 0 ? ' y $updated ya estaban' : ''}.',
+    'Steam: ${added == 1 ? 'Un juego importado' : '$added juegos importados'} de tu cuenta'
+    '${updated > 0 ? ', ${_alreadyTracked(updated)}' : ''}.',
 };
 
 String _formatEpoch(int seconds) {
@@ -424,7 +426,7 @@ void _openGameDialog(BuildContext context, Game game) {
   // datos nunca se obtuvieron o superaron el intervalo de refresco configurado.
   if (cubit.state.hltbAutoRefreshOnDetail) {
     final current = cubit.gameById(game.internalId) ?? game;
-    if (current.idSteam != null && current.needsHltbRefresh(cubit.state.refreshIntervalDays)) {
+    if (current.idSteam != null && current.needsHltbRefresh(cubit.state.refreshIntervalDays, byCalendar: cubit.state.hltbRefreshByCalendar)) {
       cubit.refetchHltbForGame(current);
     }
   }
@@ -437,8 +439,51 @@ void _openGameDialog(BuildContext context, Game game) {
 // ==========================================
 // WIDGET PRINCIPAL
 // ==========================================
+/// Relanza la sincronización automática cada vez que la app vuelve a primer plano: en
+/// móvil rara vez se cierra, así que "al abrir" incluye regresar a ella.
+class _AutoSyncScope extends StatefulWidget {
+  final Widget child;
+  const _AutoSyncScope({required this.child});
+
+  @override
+  State<_AutoSyncScope> createState() => _AutoSyncScopeState();
+}
+
+class _AutoSyncScopeState extends State<_AutoSyncScope> {
+  late final HomeCubit _cubit = context.read<HomeCubit>();
+  late final AppLifecycleListener _lifecycle;
+  late final StreamSubscription<SteamSync> _events;
+
+  @override
+  void initState() {
+    super.initState();
+    _lifecycle = AppLifecycleListener(onResume: _cubit.runAutoSync);
+    _events = _cubit.steamAutoSyncEvents.listen((result) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_steamSyncMessage(result))));
+    });
+  }
+
+  @override
+  void dispose() {
+    _lifecycle.dispose();
+    _events.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
+
 class HomeView extends StatelessWidget {
   const HomeView({super.key});
+
+  @override
+  Widget build(BuildContext context) => const _AutoSyncScope(child: _HomeScaffold());
+}
+
+class _HomeScaffold extends StatelessWidget {
+  const _HomeScaffold();
 
   @override
   Widget build(BuildContext context) {
@@ -2090,12 +2135,27 @@ class _HltbRefreshControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final countsDays = context.select((HomeCubit c) => c.state.refreshIntervalDays > 0);
     return Wrap(
       spacing: 12,
       runSpacing: 6,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        const _HltbIntervalStepper(),
+        _DaysStepper(
+          label: 'Cada',
+          // Sin "al abrir": re-consultaría la biblioteca entera, varias páginas por juego.
+          min: SyncInterval.manual,
+          max: SyncInterval.maxDays,
+          specialLabels: const {SyncInterval.manual: 'Manual'},
+          selector: (s) => s.refreshIntervalDays,
+          onCommit: (cubit, days) => cubit.updateFlag(refreshIntervalDays: days),
+        ),
+        if (countsDays)
+          _BooleanFilterChip(
+            label: 'Por fecha de calendario',
+            selector: (c) => c.state.hltbRefreshByCalendar,
+            onToggled: (val) => context.read<HomeCubit>().updateFlag(hltbRefreshByCalendar: val),
+          ),
         _BooleanFilterChip(
           label: 'Consultar al abrir detalle',
           selector: (c) => c.state.hltbAutoRefreshOnDetail,
@@ -2106,15 +2166,61 @@ class _HltbRefreshControls extends StatelessWidget {
   }
 }
 
-/// Selector del intervalo de refresco de HLTB (en días) en una sola línea:
-/// un valor numérico editable al centro con flechas −/+ para ajustarlo, acotado
-/// a [_min, _max]. Escribir permite saltar a cualquier entero sin ir de uno en
-/// uno. Se suscribe solo a refreshIntervalDays (BlocConsumer con buildWhen)
-class _HltbIntervalStepper extends StatefulWidget {
-  const _HltbIntervalStepper();
+/// Contar por fecha solo cambia algo con un intervalo de días; al abrir y manual no lo usan.
+class _SteamLibraryCheckControls extends StatelessWidget {
+  const _SteamLibraryCheckControls();
 
   @override
-  State<_HltbIntervalStepper> createState() => _HltbIntervalStepperState();
+  Widget build(BuildContext context) {
+    final countsDays = context.select((HomeCubit c) => c.state.steamCheckDays > 0);
+    return Wrap(
+      spacing: 12,
+      runSpacing: 6,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        _DaysStepper(
+          label: 'Frecuencia',
+          min: SyncInterval.onOpen,
+          max: SyncInterval.maxDays,
+          specialLabels: const {SyncInterval.onOpen: 'Al abrir', SyncInterval.manual: 'Manual'},
+          selector: (s) => s.steamCheckDays,
+          onCommit: (cubit, days) => cubit.updateFlag(steamCheckDays: days),
+        ),
+        if (countsDays)
+          _BooleanFilterChip(
+            label: 'Por fecha de calendario',
+            selector: (c) => c.state.steamCheckByCalendar,
+            onToggled: (val) => context.read<HomeCubit>().updateFlag(steamCheckByCalendar: val),
+          ),
+      ],
+    );
+  }
+}
+
+/// Selector de un intervalo en días en una sola línea: un valor numérico editable al
+/// centro con flechas −/+ que recorren [min, max] en ciclo. Escribir permite saltar a
+/// cualquier entero sin ir de uno en uno. Los valores de [specialLabels] se muestran
+/// por su nombre en lugar de como "N días".
+class _DaysStepper extends StatefulWidget {
+  final String label;
+  final int min;
+  final int max;
+  final Map<int, String> specialLabels;
+  final int Function(HomeState) selector;
+  // Recibe el cubit porque también se confirma desde dispose, sin context utilizable.
+  final void Function(HomeCubit cubit, int days) onCommit;
+
+  const _DaysStepper({
+    required this.label,
+    required this.min,
+    this.max = 365,
+    this.specialLabels = const {},
+    required this.selector,
+    required this.onCommit,
+  });
+
+  @override
+  State<_DaysStepper> createState() => _DaysStepperState();
 }
 
 class _HoldRepeatButton extends StatefulWidget {
@@ -2200,22 +2306,25 @@ class _MaxValueFormatter extends TextInputFormatter {
   }
 }
 
-class _HltbIntervalStepperState extends State<_HltbIntervalStepper> {
-  static const int _min = 0;   // 0 = desactivado
-  static const int _max = 365; // máximo solicitado
-
+class _DaysStepperState extends State<_DaysStepper> {
   late final HomeCubit _cubit; // guardado para poder volcar en dispose sin usar context
   late final TextEditingController _ctrl;
   late final FocusNode _focus;
   Timer? _commitDebounce;
   late int _days;
 
+  int get _min => widget.min;
+  int get _max => widget.max;
+
+  // Un valor con nombre deja el campo vacío para que lo muestre el hint.
+  String _fieldText(int value) => widget.specialLabels.containsKey(value) ? '' : '$value';
+
   @override
   void initState() {
     super.initState();
     _cubit = context.read<HomeCubit>();
-    _days = _cubit.state.refreshIntervalDays.clamp(_min, _max);
-    _ctrl = TextEditingController(text: '$_days');
+    _days = widget.selector(_cubit.state).clamp(_min, _max);
+    _ctrl = TextEditingController(text: _fieldText(_days));
     _focus = FocusNode()..addListener(_onFocusChange);
   }
 
@@ -2231,7 +2340,7 @@ class _HltbIntervalStepperState extends State<_HltbIntervalStepper> {
 
   // Ciclo modular sobre [_min, _max] para cualquier delta (positivo o negativo).
   int _cycle(int v, int delta) {
-    const range = _max - _min + 1;
+    final range = _max - _min + 1;
     final shifted = (v - _min + delta) % range;
     return _min + (shifted + range) % range;
   }
@@ -2240,7 +2349,7 @@ class _HltbIntervalStepperState extends State<_HltbIntervalStepper> {
     if (!mounted) return;
     setState(() => _days = value);
     if (syncField) {
-      final text = '$value';
+      final text = _fieldText(value);
       if (_ctrl.text != text) _ctrl.text = text;
     }
     _scheduleCommit();
@@ -2265,9 +2374,7 @@ class _HltbIntervalStepperState extends State<_HltbIntervalStepper> {
 
   void _commitNow() {
     _commitDebounce?.cancel();
-    if (_cubit.state.refreshIntervalDays != _days) {
-      _cubit.updateFlag(refreshIntervalDays: _days);
-    }
+    if (widget.selector(_cubit.state) != _days) widget.onCommit(_cubit, _days);
   }
 
   @override
@@ -2277,9 +2384,11 @@ class _HltbIntervalStepperState extends State<_HltbIntervalStepper> {
       color: cs.onSurfaceVariant,
     );
 
-    // Ancho fijo para 3 dígitos (el máximo es 366), medido con el estilo real.
+    final special = widget.specialLabels[_days];
+
+    // Ancho fijo para 3 dígitos (o para el nombre del valor), medido con el estilo real.
     final painter = TextPainter(
-      text: TextSpan(text: '000', style: numberStyle),
+      text: TextSpan(text: special ?? '000', style: numberStyle),
       textDirection: TextDirection.ltr,
       maxLines: 1,
     )..layout();
@@ -2298,9 +2407,9 @@ class _HltbIntervalStepperState extends State<_HltbIntervalStepper> {
       child: IntrinsicWidth(
         child: InputDecorator(
           decoration: InputDecoration(
-            label: const Padding(
-              padding: EdgeInsetsDirectional.symmetric(horizontal: 4),
-              child: Text('Refrescar cada'),
+            label: Padding(
+              padding: const EdgeInsetsDirectional.symmetric(horizontal: 4),
+              child: Text(widget.label),
             ),
             filled: true,
             fillColor: cs.surface,
@@ -2332,10 +2441,12 @@ class _HltbIntervalStepperState extends State<_HltbIntervalStepper> {
                     FilteringTextInputFormatter.digitsOnly,
                     _MaxValueFormatter(_max),
                   ],
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     border: InputBorder.none,
                     isCollapsed: true,
                     contentPadding: EdgeInsets.zero,
+                    hintText: special,
+                    hintStyle: numberStyle,
                   ),
                   style: numberStyle,
                   onChanged: (text) {
@@ -2346,10 +2457,11 @@ class _HltbIntervalStepperState extends State<_HltbIntervalStepper> {
                   onSubmitted: (_) => _focus.unfocus(),
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.only(right: 2),
-                child: Text(_days == 1 ? 'día' : 'días', style: numberStyle),
-              ),
+              if (special == null)
+                Padding(
+                  padding: const EdgeInsets.only(right: 2),
+                  child: Text(_days == 1 ? 'día' : 'días', style: numberStyle),
+                ),
               _HoldRepeatButton(
                 tooltip: 'Más días',
                 icon: Icon(Icons.add, size: 18, color: cs.onSurfaceVariant),
@@ -2537,8 +2649,14 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
               ),
             ),
 
+            if (context.select<HomeCubit, bool>((c) => c.state.hasSteamAccount))
+              _buildGroup(
+                'Sincronizar biblioteca de Steam',
+                const _SteamLibraryCheckControls(),
+              ),
+
             _buildGroup(
-              'HowLongToBeat',
+              'Sincronizar con HowLongToBeat',
               const _HltbRefreshControls(),
             ),
 

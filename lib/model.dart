@@ -10,6 +10,30 @@ extension EnumByNameOrNull<T extends Enum> on Iterable<T> {
   }
 }
 
+/// Intervalo de una sincronización automática, en días: [onOpen] la lanza en cada
+/// apertura, [manual] solo cuando se pide y cualquier N > 0 cada N días.
+abstract final class SyncInterval {
+  static const int onOpen = -1;
+  static const int manual = 0;
+  static const int maxDays = 365;
+
+  /// Margen para que alternar entre apps no repita la consulta en cada regreso.
+  static const Duration reopenGap = Duration(minutes: 30);
+
+  /// Con [byCalendar] los días se cuentan por fecha y no por horas: lo sincronizado a
+  /// las 23:59 vuelve a tocar al abrir pasada la medianoche.
+  static bool isDue(int days, {required bool byCalendar, required DateTime? last, required DateTime now}) {
+    if (days == manual) return false;
+    if (last == null) return true;
+    if (days == onOpen) return now.difference(last) >= reopenGap;
+    if (!byCalendar) return now.difference(last) >= Duration(days: days);
+    // En UTC para que un cambio de horario no deje un día en 23 o 25 horas.
+    final elapsed = DateTime.utc(now.year, now.month, now.day)
+        .difference(DateTime.utc(last.year, last.month, last.day));
+    return elapsed.inDays >= days;
+  }
+}
+
 enum GameStatus {
   planned,
   playing,
@@ -87,13 +111,17 @@ class Game({
 
   /// Indica si los datos de HLTB deben (re)consultarse automáticamente. El software nunca
   /// se auto-consulta (no existe en HLTB). Un juego nunca obtenido se consulta la primera
-  /// vez; un [intervalDays] <= 0 desactiva la re-consulta periódica.
-  bool needsHltbRefresh(int intervalDays) {
+  /// vez; con [intervalDays] en [SyncInterval.manual] no hay re-consulta periódica.
+  bool needsHltbRefresh(int intervalDays, {bool byCalendar = false}) {
     if (isSoftware == true) return false; // las apps no existen en HLTB
     if (hltbFetchedAt == null) return true; // siempre obtener la primera vez
-    if (intervalDays <= 0) return false; // 0 = re-consulta desactivada
-    final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    return (nowSec - hltbFetchedAt!) > intervalDays * 86400;
+    if (intervalDays <= SyncInterval.manual) return false;
+    return SyncInterval.isDue(
+      intervalDays,
+      byCalendar: byCalendar,
+      last: DateTime.fromMillisecondsSinceEpoch(hltbFetchedAt! * 1000),
+      now: DateTime.now(),
+    );
   }
 
   factory fromJson(Map<String, dynamic> json) {
