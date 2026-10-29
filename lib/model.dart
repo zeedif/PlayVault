@@ -44,29 +44,116 @@ enum GameStatus {
   discarded
 }
 
-enum GameLanguage { english, spanish, patched }
+enum GameLanguage { english, spanish }
 enum SpType { native, simulated, none }
 enum InteractionType { none, coop, pvp, both }
-enum VrSupport { no, yes, only, mod }
+enum VrSupport { no, yes, only }
+
+/// Unidad en la que el usuario expresa un peso. Es la única fuente de los factores de
+/// conversión: el slider, el detalle y el resumen formatean a partir de aquí.
+enum SizeUnit {
+  mb(1000000, 'MB'),
+  gb(1000000000, 'GB'),
+  mib(1048576, 'MiB'),
+  gib(1073741824, 'GiB');
+
+  final double bytes;
+  final String label;
+  const SizeUnit(this.bytes, this.label);
+
+  bool get isLarge => this == gb || this == gib;
+
+  static SizeUnit of({required bool large, required bool binary}) => switch ((large, binary)) {
+    (true, true) => gib,
+    (true, false) => gb,
+    (false, true) => mib,
+    (false, false) => mb,
+  };
+
+  /// Unidad con la que se muestra una cifra: la grande en cuanto llega a 1 GB/GiB.
+  static SizeUnit forBytes(double bytes, {required bool binary}) =>
+      of(large: bytes >= of(large: true, binary: binary).bytes, binary: binary);
+
+  static String format(double bytes, {required bool binary}) {
+    final unit = forBytes(bytes, binary: binary);
+    return '${(bytes / unit.bytes).toStringAsFixed(2)} ${unit.label}';
+  }
+}
+
+/// Estado con que PCGamingWiki califica una característica, de mejor a peor.
+enum Support {
+  native,
+  limited,
+  hackable,
+  no,
+  unknown;
+
+  /// Se puede usar, sea de serie o con ayuda.
+  bool get works => index <= hackable.index;
+
+  /// El mejor de dos estados, con `null` como ausencia de dato.
+  Support? best(Support? other) => other == null || index <= other.index ? this : other;
+
+  /// Título del icono de la tabla ("Native support", "Hackable"...).
+  static Support parse(String? title) => switch (title?.toLowerCase()) {
+    'native support' => native,
+    'limited native support' => limited,
+    'hackable' => hackable,
+    'no native support' => no,
+    _ => unknown,
+  };
+}
+
+/// Enlace con nombre: una traducción, un mod de VR, un arreglo de audio o un parche.
+class WebLink({required final String name, required final String url, final String? note}) {
+  factory fromJson(Map<String, dynamic> json) => WebLink(
+    name: json['name']?.toString() ?? '',
+    url: json['url']?.toString() ?? '',
+    note: json['note'] as String?,
+  );
+
+  Map<String, dynamic> toJson() => {'name': name, 'url': url, if (note != null) 'note': note};
+
+  /// Lista desde JSON, sin repetir URL: la última aparición gana.
+  static List<WebLink> listFromJson(dynamic raw) {
+    if (raw is! List) return const [];
+    final byUrl = {
+      for (final item in raw.whereType<Map>())
+        if (WebLink.fromJson(Map<String, dynamic>.from(item)) case final link when link.url.isNotEmpty)
+          link.url: link,
+    };
+    return byUrl.values.toList();
+  }
+}
 
 class Game({
   final int? idSteam,
   final String? name,
-  required final double size,
-  required final String unit,
-  required final double sizeInBytes,
+  final double size = 0,
+  final SizeUnit unit = SizeUnit.mb,
   final bool? isSoftware,
   final bool? isFree,
+  /// Español oficial según la tienda de Steam.
   final bool? hasSpanish,
+  /// Traducciones al español ajenas a la tienda: fan translations, parches...
+  final List<WebLink> translations = const [],
   final SpType? spType,
   final InteractionType? matchmaking, // Matchmaking, MMO o servidores no autohospedables
   final InteractionType? friendPlay, // Lobbies, LAN, local o servidores autohospedables
   final bool? hasAchievements,
   final bool? hasSteamCloud,
   final bool? isGeforceNow,
+  /// VR de serie según Steam o PCGamingWiki; independiente de [vrMods].
   final VrSupport? vrSupport,
+  /// Mods o aplicaciones que meten en VR un juego que no lo es de serie.
+  final List<WebLink> vrMods = const [],
+  /// Arreglos de sonido posicional: DSOAL, OpenAL Soft, HRTF...
+  final List<WebLink> audioFixes = const [],
+  /// Mejoras imprescindibles de PCGamingWiki: parches no oficiales y similares.
+  final List<WebLink> patches = const [],
+  /// Control por movimiento: giroscopio del mando o mandos de VR con seguimiento.
+  final Support? motion,
   final GameStatus status = GameStatus.planned,
-  final String? patchUrl,
   final String? userNote,
   final bool hasFetchedSteam = false,
   final bool hasFetchedGfn = false,
@@ -75,11 +162,16 @@ class Game({
   final bool? isOwnedOnSteam,
   final int? hltbFetchedAt,
   final HltbStats? hltbStats,
+  /// Título del artículo en PCGamingWiki, una vez localizado.
+  final String? pcgwPage,
+  final int? pcgwFetchedAt,
 }) {
   this : assert(
     idSteam != null || name != null,
     'Un juego debe tener idSteam o un nombre',
   );
+
+  late final double sizeInBytes = size * unit.bytes;
 
   /// Normaliza el nombre del juego para comparaciones estrictas.
   static String normalizeIdName(String? input) {
@@ -103,11 +195,15 @@ class Game({
   /// (ej. F.E.A.R. vs F.E.A.R.: Extraction Point) pero evitar duplicados por case-sensitive o tags.
   String get internalId => internalIdOf(idSteam, name);
 
-  /// Determina el idioma basado en las propiedades.
-  GameLanguage get language {
-    if (patchUrl case final url? when url.trim().isNotEmpty) return GameLanguage.patched;
-    return hasSpanish == true ? GameLanguage.spanish : GameLanguage.english;
-  }
+  /// Idioma de serie; las traducciones de aficionados se cuentan aparte en [hasTranslations].
+  GameLanguage get language => hasSpanish == true ? GameLanguage.spanish : GameLanguage.english;
+
+  bool get hasTranslations => translations.isNotEmpty;
+
+  /// VR de serie; sin dato cuenta como [VrSupport.no].
+  VrSupport get vr => vrSupport ?? VrSupport.no;
+
+  bool get hasVrMods => vrMods.isNotEmpty;
 
   /// Indica si los datos de HLTB deben (re)consultarse automáticamente. El software nunca
   /// se auto-consulta (no existe en HLTB). Un juego nunca obtenido se consulta la primera
@@ -124,62 +220,60 @@ class Game({
     );
   }
 
-  factory fromJson(Map<String, dynamic> json) {
-    final size = (json['size'] ?? 0).toDouble() as double;
-    final unit = (json['unit'] ?? 'mb').toString().toLowerCase();
+  /// PCGamingWiki se consulta sola una vez por juego con appid; después, a petición.
+  bool get needsPcgwFetch => idSteam != null && isSoftware != true && pcgwFetchedAt == null;
 
-    final fetchedSteam = (json['has_fetched_steam'] as bool?) ?? switch (json) {
-      // _ when json['has_fetched_steam'] == true => true, // inalcanzable
-      // Sin id, marcamos como fetchedSteam=true para que no intente el fetch.
-      _ when json['id_steam'] == null => true,
-      {
-        'name': _,
-        'is_software': _,
-        'is_free': _,
-        'has_spanish': _,
-        'sp_type': _,
-        'has_achievements': _,
-        'has_steam_cloud': _,
-        'vr_support': _,
-      } => true,
-      _ => false,
-    };
+  /// Claves que escribe la cola de Steam: si están todas, el juego ya pasó por ella.
+  static const _steamKeys = {
+    'name', 'is_software', 'is_free', 'has_spanish', 'sp_type',
+    'has_achievements', 'has_steam_cloud', 'vr_support',
+  };
 
-    return Game(
-      idSteam: json['id_steam'] as int?,
-      name: json['name'] as String?,
-      size: size,
-      unit: unit,
-      sizeInBytes: _calculateBytes(size, unit),
-      isSoftware: json['is_software'] as bool?,
-      isFree: json['is_free'] as bool?,
-      hasSpanish: json['has_spanish'] as bool?,
-      spType: SpType.values.byNameOrNull(json['sp_type'] as String?),
-      matchmaking: InteractionType.values.byNameOrNull(json['matchmaking'] as String?),
-      friendPlay: InteractionType.values.byNameOrNull(json['friend_play'] as String?),
-      hasAchievements: json['has_achievements'] as bool?,
-      hasSteamCloud: json['has_steam_cloud'] as bool?,
-      isGeforceNow: json['is_geforce_now'] as bool?,
-      vrSupport: VrSupport.values.byNameOrNull(json['vr_support'] as String?),
-      status: GameStatus.values.byNameOrNull(json['status'] as String?) ?? GameStatus.planned,
-      patchUrl: json['patch_url'] as String?,
-      userNote: json['user_note'] as String?,
-      hasFetchedSteam: fetchedSteam,
-      hasFetchedGfn: (json['has_fetched_gfn'] as bool?) ?? false,
-      isOwnedOnSteam: json['is_owned_on_steam'] as bool?,
-      hltbFetchedAt: json['hltb_fetched_at'] as int?,
-      hltbStats: json['hltb_stats'] != null ? HltbStats.fromJson(json['hltb_stats'] as Map<String, dynamic>) : null,
-    );
-  }
+  factory fromJson(Map<String, dynamic> json) => Game(
+    idSteam: json['id_steam'] as int?,
+    name: json['name'] as String?,
+    size: (json['size'] as num?)?.toDouble() ?? 0,
+    unit: SizeUnit.values.byNameOrNull((json['unit'] as String?)?.toLowerCase()) ?? SizeUnit.mb,
+    isSoftware: json['is_software'] as bool?,
+    isFree: json['is_free'] as bool?,
+    hasSpanish: json['has_spanish'] as bool?,
+    translations: WebLink.listFromJson(json['translations']),
+    spType: SpType.values.byNameOrNull(json['sp_type'] as String?),
+    matchmaking: InteractionType.values.byNameOrNull(json['matchmaking'] as String?),
+    friendPlay: InteractionType.values.byNameOrNull(json['friend_play'] as String?),
+    hasAchievements: json['has_achievements'] as bool?,
+    hasSteamCloud: json['has_steam_cloud'] as bool?,
+    isGeforceNow: json['is_geforce_now'] as bool?,
+    vrSupport: VrSupport.values.byNameOrNull(json['vr_support'] as String?),
+    vrMods: WebLink.listFromJson(json['vr_mods']),
+    audioFixes: WebLink.listFromJson(json['audio_fixes']),
+    patches: WebLink.listFromJson(json['patches']),
+    motion: Support.values.byNameOrNull(json['motion'] as String?),
+    status: GameStatus.values.byNameOrNull(json['status'] as String?) ?? GameStatus.planned,
+    userNote: json['user_note'] as String?,
+    // Sin id no hay nada que pedir a Steam, así que se da por consultado.
+    hasFetchedSteam: json['has_fetched_steam'] as bool? ??
+        (json['id_steam'] == null || json.keys.toSet().containsAll(_steamKeys)),
+    hasFetchedGfn: json['has_fetched_gfn'] as bool? ?? false,
+    isOwnedOnSteam: json['is_owned_on_steam'] as bool?,
+    hltbFetchedAt: json['hltb_fetched_at'] as int?,
+    hltbStats: switch (json['hltb_stats']) {
+      final Map<String, dynamic> stats => HltbStats.fromJson(stats),
+      _ => null,
+    },
+    pcgwPage: json['pcgw_page'] as String?,
+    pcgwFetchedAt: json['pcgw_fetched_at'] as int?,
+  );
 
   Map<String, dynamic> toJson() => {
     if (idSteam != null) 'id_steam': idSteam,
     if (name != null) 'name': name,
     'size': size,
-    'unit': unit,
+    'unit': unit.name,
     if (isSoftware != null) 'is_software': isSoftware,
     if (isFree != null) 'is_free': isFree,
     if (hasSpanish != null) 'has_spanish': hasSpanish,
+    if (translations.isNotEmpty) 'translations': [for (final l in translations) l.toJson()],
     if (spType != null) 'sp_type': spType!.name,
     if (matchmaking != null) 'matchmaking': matchmaking!.name,
     if (friendPlay != null) 'friend_play': friendPlay!.name,
@@ -187,112 +281,22 @@ class Game({
     if (hasSteamCloud != null) 'has_steam_cloud': hasSteamCloud,
     if (isGeforceNow != null) 'is_geforce_now': isGeforceNow,
     if (vrSupport != null) 'vr_support': vrSupport!.name,
+    if (vrMods.isNotEmpty) 'vr_mods': [for (final l in vrMods) l.toJson()],
+    if (audioFixes.isNotEmpty) 'audio_fixes': [for (final l in audioFixes) l.toJson()],
+    if (patches.isNotEmpty) 'patches': [for (final l in patches) l.toJson()],
+    if (motion != null) 'motion': motion!.name,
     'status': status.name,
-    if (patchUrl != null) 'patch_url': patchUrl,
     if (userNote != null) 'user_note': userNote,
     'has_fetched_steam': hasFetchedSteam,
     'has_fetched_gfn': hasFetchedGfn,
     if (isOwnedOnSteam != null) 'is_owned_on_steam': isOwnedOnSteam,
     'hltb_fetched_at': hltbFetchedAt,
     if (hltbStats != null) 'hltb_stats': hltbStats!.toJson(),
+    if (pcgwPage != null) 'pcgw_page': pcgwPage,
+    if (pcgwFetchedAt != null) 'pcgw_fetched_at': pcgwFetchedAt,
   };
 
   /// Aplica un parche parcial desde un Map JSON, preservando los campos no presentes.
-  /// La función local `pick<T>` centraliza la semántica de "containsKey o fallback".
-  Game updateFromJson(Map<String, dynamic> json) {
-    // Type-safe: si el valor existe pero no es T (incluyendo null con T no-nullable),
-    // retorna el campo actual en lugar de lanzar.
-    T pick<T>(String key, T current) {
-      if (!json.containsKey(key)) return current;
-      final v = json[key];
-      return v is T ? v : current;
-    }
-
-    final newSize = json.containsKey('size') ? (json['size'] as num).toDouble() : size;
-    final newUnit = json.containsKey('unit') ? json['unit'].toString().toLowerCase() : unit;
-
-    return Game(
-      idSteam: pick('id_steam', idSteam),
-      name: pick('name', name),
-      size: newSize,
-      unit: newUnit,
-      sizeInBytes: _calculateBytes(newSize, newUnit),
-      isSoftware: pick('is_software', isSoftware),
-      isFree: pick('is_free', isFree),
-      hasSpanish: pick('has_spanish', hasSpanish),
-      spType: json.containsKey('sp_type') ? SpType.values.byNameOrNull(json['sp_type'] as String?) : spType,
-      matchmaking: json.containsKey('matchmaking') ? InteractionType.values.byNameOrNull(json['matchmaking'] as String?) : matchmaking,
-      friendPlay: json.containsKey('friend_play') ? InteractionType.values.byNameOrNull(json['friend_play'] as String?) : friendPlay,
-      hasAchievements: pick('has_achievements', hasAchievements),
-      hasSteamCloud: pick('has_steam_cloud', hasSteamCloud),
-      isGeforceNow: pick('is_geforce_now', isGeforceNow),
-      vrSupport: json.containsKey('vr_support') ? VrSupport.values.byNameOrNull(json['vr_support'] as String?) : vrSupport,
-      status: json.containsKey('status') ? (GameStatus.values.byNameOrNull(json['status'] as String?) ?? GameStatus.planned) : status,
-      patchUrl: pick('patch_url', patchUrl),
-      userNote: pick('user_note', userNote),
-      hasFetchedSteam: pick('has_fetched_steam', hasFetchedSteam),
-      hasFetchedGfn: pick('has_fetched_gfn', hasFetchedGfn),
-      isOwnedOnSteam: pick('is_owned_on_steam', isOwnedOnSteam),
-      hltbFetchedAt: pick('hltb_fetched_at', hltbFetchedAt),
-      hltbStats: json.containsKey('hltb_stats') && json['hltb_stats'] != null ? HltbStats.fromJson(json['hltb_stats'] as Map<String, dynamic>) : hltbStats,
-    );
-  }
-
-  Game copyWith({
-    int? idSteam,
-    String? name,
-    double? size,
-    String? unit,
-    double? sizeInBytes,
-    bool? isSoftware,
-    bool? isFree,
-    bool? hasSpanish,
-    SpType? spType,
-    InteractionType? matchmaking,
-    InteractionType? friendPlay,
-    bool? hasAchievements,
-    bool? hasSteamCloud,
-    bool? isGeforceNow,
-    VrSupport? vrSupport,
-    GameStatus? status,
-    String? patchUrl,
-    String? userNote,
-    bool? hasFetchedSteam,
-    bool? hasFetchedGfn,
-    bool? isOwnedOnSteam,
-    int? hltbFetchedAt,
-    HltbStats? hltbStats,
-  }) => Game(
-    idSteam: idSteam ?? this.idSteam,
-    name: name ?? this.name,
-    size: size ?? this.size,
-    unit: unit ?? this.unit,
-    sizeInBytes: sizeInBytes ?? this.sizeInBytes,
-    isSoftware: isSoftware ?? this.isSoftware,
-    isFree: isFree ?? this.isFree,
-    hasSpanish: hasSpanish ?? this.hasSpanish,
-    spType: spType ?? this.spType,
-    matchmaking: matchmaking ?? this.matchmaking,
-    friendPlay: friendPlay ?? this.friendPlay,
-    hasAchievements: hasAchievements ?? this.hasAchievements,
-    hasSteamCloud: hasSteamCloud ?? this.hasSteamCloud,
-    isGeforceNow: isGeforceNow ?? this.isGeforceNow,
-    vrSupport: vrSupport ?? this.vrSupport,
-    status: status ?? this.status,
-    patchUrl: patchUrl ?? this.patchUrl,
-    userNote: userNote ?? this.userNote,
-    hasFetchedSteam: hasFetchedSteam ?? this.hasFetchedSteam,
-    hasFetchedGfn: hasFetchedGfn ?? this.hasFetchedGfn,
-    isOwnedOnSteam: isOwnedOnSteam ?? this.isOwnedOnSteam,
-    hltbFetchedAt: hltbFetchedAt ?? this.hltbFetchedAt,
-    hltbStats: hltbStats ?? this.hltbStats,
-  );
-
-  static double _calculateBytes(double size, String unit) => switch (unit) {
-    'gb' => size * 1000000000,
-    'mb' => size * 1000000,
-    'gib' => size * 1073741824,
-    'mib' => size * 1048576,
-    _ => 0,
-  };
+  /// Una clave con `null` sí vacía el campo; una ausente lo deja como estaba.
+  Game updateFromJson(Map<String, dynamic> json) => Game.fromJson({...toJson(), ...json});
 }

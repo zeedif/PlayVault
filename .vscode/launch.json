@@ -7,28 +7,19 @@
     {
       "name": "PlayVault",
       "request": "launch",
-      "type": "dart",
-      "toolArgs": [
-        "--enable-experiment=primary-constructors"
-      ]
+      "type": "dart"
     },
     {
       "name": "PlayVault (profile mode)",
       "request": "launch",
       "type": "dart",
-      "flutterMode": "profile",
-      "toolArgs": [
-        "--enable-experiment=primary-constructors"
-      ]
+      "flutterMode": "profile"
     },
     {
       "name": "PlayVault (release mode)",
       "request": "launch",
       "type": "dart",
-      "flutterMode": "release",
-      "toolArgs": [
-        "--enable-experiment=primary-constructors"
-      ]
+      "flutterMode": "release"
     }
   ]
 }

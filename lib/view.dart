@@ -11,7 +11,9 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'app_dimensions.dart';
 import 'hltb_service.dart';
+import 'launcher_service.dart';
 import 'model.dart';
+import 'pcgw_service.dart';
 import 'state.dart';
 import 'steam_service.dart';
 
@@ -24,63 +26,86 @@ const List<InteractionType> _activeInteractions = [
 ];
 
 // ==========================================
-// FUNCIONES PARA UI DE STATUS, IDIOMAS Y CURVA
+// TEXTOS Y COLORES DE LOS ENUMS
 // ==========================================
-String _statusName(GameStatus s) => switch (s) {
-  GameStatus.planned => 'Planeado',
-  GameStatus.playing => 'Jugando',
-  GameStatus.beaten => 'Terminado',
-  GameStatus.completed => 'Platinado',
-  GameStatus.paused => 'Suspendido',
-  GameStatus.dropped => 'Abandonado',
-  GameStatus.discarded => 'Descartado',
-};
+extension on GameStatus {
+  String get label => switch (this) {
+    GameStatus.planned => 'Planeado',
+    GameStatus.playing => 'Jugando',
+    GameStatus.beaten => 'Terminado',
+    GameStatus.completed => 'Platinado',
+    GameStatus.paused => 'Suspendido',
+    GameStatus.dropped => 'Abandonado',
+    GameStatus.discarded => 'Descartado',
+  };
 
-Color _statusColor(GameStatus s, bool isDark) => switch ((s, isDark)) {
-  (GameStatus.completed, true) => const Color(0x26E5E9F0),
-  (GameStatus.completed, false) => const Color(0x1ED1D9E6),
-  (GameStatus.beaten, true) => const Color(0x263DDB85),
-  (GameStatus.beaten, false) => const Color(0x1E3CA059),
-  (GameStatus.dropped, _) => const Color(0x26D73A49),
-  (GameStatus.paused, true) => const Color(0x26FFB74D),
-  (GameStatus.paused, false) => const Color(0x1EE87400),
-  (GameStatus.playing, _) => const Color(0x26C597FF),
-  (GameStatus.planned, true) => const Color(0x2687A9FF),
-  (GameStatus.planned, false) => const Color(0x1E2483E2),
-  (GameStatus.discarded, _) => const Color(0x269E9E9E),
-};
-
-String _langName(GameLanguage l) => switch (l) { GameLanguage.english => 'Inglés', GameLanguage.spanish => 'Español', GameLanguage.patched => 'Parcheado' };
-String _distName(SliderDistribution d) => switch (d) { SliderDistribution.discrete => 'Discreta', SliderDistribution.quadratic => 'Cuadrática', SliderDistribution.cubic => 'Cúbica' };
-String _spTypeName(SpType s) => switch (s) { SpType.native => 'Nativo', SpType.simulated => 'Con Bots / Alternado', SpType.none => 'Sin Solitario' };
-String _interactionName(InteractionType i) => switch (i) { InteractionType.none => 'Ninguno', InteractionType.coop => 'Cooperativo', InteractionType.pvp => 'Competitivo', InteractionType.both => 'Ambos (Coop + JcJ)' };
-String _expName(ExperienceFilter e) => switch (e) { ExperienceFilter.any => 'Cualquiera', ExperienceFilter.coop => 'Solo Cooperativo', ExperienceFilter.pvp => 'Solo Competitivo', ExperienceFilter.both => 'Ambos' };
-String _vrName(VrSupport v) => switch (v) { VrSupport.no => 'Sin VR', VrSupport.yes => 'VR opcional', VrSupport.only => 'Solo VR', VrSupport.mod => 'Mod VR' };
-
-String _formatDuration(int? minutes) {
-  if (minutes == null || minutes <= 0) return '--';
-  final hh = minutes ~/ 60;
-  final mm = minutes % 60;
-  return switch ((hh, mm)) {
-    (0, _) => '${mm}m',
-    (_, 0) => '${hh}h',
-    _ => '${hh}h ${mm}m',
+  Color color(bool isDark) => switch ((this, isDark)) {
+    (GameStatus.completed, true) => const Color(0x26E5E9F0),
+    (GameStatus.completed, false) => const Color(0x1ED1D9E6),
+    (GameStatus.beaten, true) => const Color(0x263DDB85),
+    (GameStatus.beaten, false) => const Color(0x1E3CA059),
+    (GameStatus.dropped, _) => const Color(0x26D73A49),
+    (GameStatus.paused, true) => const Color(0x26FFB74D),
+    (GameStatus.paused, false) => const Color(0x1EE87400),
+    (GameStatus.playing, _) => const Color(0x26C597FF),
+    (GameStatus.planned, true) => const Color(0x2687A9FF),
+    (GameStatus.planned, false) => const Color(0x1E2483E2),
+    (GameStatus.discarded, _) => const Color(0x269E9E9E),
   };
 }
 
-/// Unidad con la que se muestra un tamaño: MB/GB, o MiB/GiB si el ajuste es binario.
-/// [large] elige GB/GiB frente a MB/MiB.
-({double divisor, String name}) _unitOf({required bool large, required bool isBinary}) =>
-    switch ((isBinary, large)) {
-      (true, true) => (divisor: 1073741824.0, name: "GiB"),
-      (true, false) => (divisor: 1048576.0, name: "MiB"),
-      (false, true) => (divisor: 1000000000.0, name: "GB"),
-      (false, false) => (divisor: 1000000.0, name: "MB"),
-    };
+extension on GameLanguage {
+  String get label => switch (this) { GameLanguage.english => 'Inglés', GameLanguage.spanish => 'Español' };
+}
 
-/// Cifra del tamaño en la unidad de [divisor], sin decimales cuando es exacta.
-String _formatIn(double bytes, double divisor) {
-  final value = bytes / divisor;
+extension on SliderDistribution {
+  String get label => switch (this) { SliderDistribution.discrete => 'Discreta', SliderDistribution.quadratic => 'Cuadrática', SliderDistribution.cubic => 'Cúbica' };
+}
+
+extension on SpType {
+  String get label => switch (this) { SpType.native => 'Nativo', SpType.simulated => 'Con Bots / Alternado', SpType.none => 'Sin Solitario' };
+}
+
+extension on InteractionType {
+  String get label => switch (this) { InteractionType.none => 'Ninguno', InteractionType.coop => 'Cooperativo', InteractionType.pvp => 'Competitivo', InteractionType.both => 'Ambos (Coop + JcJ)' };
+}
+
+extension on ExperienceFilter {
+  String get label => switch (this) { ExperienceFilter.any => 'Cualquiera', ExperienceFilter.coop => 'Solo Cooperativo', ExperienceFilter.pvp => 'Solo Competitivo', ExperienceFilter.both => 'Ambos' };
+}
+
+extension on VrSupport {
+  String get label => switch (this) { VrSupport.no => 'Sin VR', VrSupport.yes => 'VR opcional', VrSupport.only => 'Solo VR' };
+}
+
+extension on SortBy {
+  String get label => switch (this) { SortBy.name => 'Nombre', SortBy.size => 'Peso', SortBy.hltbMain => 'T. Historia', SortBy.hltbExtras => 'T. Extras', SortBy.hltbComplete => 'T. Platinado' };
+}
+
+extension on Support {
+  String get label => switch (this) { Support.native => 'de serie', Support.limited => 'limitado', Support.hackable => 'con ayuda', Support.no => 'no', Support.unknown => '?' };
+}
+
+/// Nombre con el que el filtro enseña cada valor de idioma, solitario o VR.
+String _enumLabel(Enum value) => switch (value) {
+  GameLanguage() => value.label,
+  SpType() => value.label,
+  VrSupport() => value.label,
+  _ => value.name,
+};
+
+String _formatDuration(int? minutes) {
+  if (minutes == null || minutes <= 0) return '--';
+  return switch ((minutes ~/ 60, minutes % 60)) {
+    (0, final mm) => '${mm}m',
+    (final hh, 0) => '${hh}h',
+    (final hh, final mm) => '${hh}h ${mm}m',
+  };
+}
+
+/// Cifra del tamaño en [unit], sin decimales cuando es exacta.
+String _formatIn(double bytes, SizeUnit unit) {
+  final value = bytes / unit.bytes;
   return value == value.toInt() ? value.toInt().toString() : value.toStringAsFixed(2);
 }
 
@@ -97,6 +122,11 @@ String? _getEsDeMediaPath(String? basePath, String folder, String? gameName) {
   return null;
 }
 
+Future<void> _openUrl(String url) async {
+  final uri = Uri.parse(url);
+  if (await canLaunchUrl(uri)) await launchUrl(uri, mode: LaunchMode.externalApplication);
+}
+
 /// Formatea un recuento de juegos con la unidad singular/plural correcta.
 String _games(int n) => n == 1 ? '1 juego' : '$n juegos';
 
@@ -105,13 +135,10 @@ String _importSummary(ImportPlan plan) {
   if (plan.replace) {
     return 'Biblioteca reemplazada: ${_games(plan.incoming)} importados.';
   }
-  final parts = <String>[];
-  if (plan.added > 0) parts.add('${_games(plan.added)} añadidos');
-  if (plan.merged > 0) {
-    parts.add(plan.preserveExisting
-        ? '${_games(plan.merged)} actualizados'
-        : '${_games(plan.merged)} sobrescritos');
-  }
+  final parts = [
+    if (plan.added > 0) '${_games(plan.added)} añadidos',
+    if (plan.merged > 0) '${_games(plan.merged)} ${plan.preserveExisting ? 'actualizados' : 'sobrescritos'}',
+  ];
   return parts.isEmpty
       ? 'No había nada que importar.'
       : 'Importación completada: ${parts.join(' y ')}.';
@@ -123,17 +150,15 @@ String _importSummary(ImportPlan plan) {
 /// a él con el contenido intacto.
 Future<bool?> _confirmImport(BuildContext context, ImportPlan plan) {
   final scheme = Theme.of(context).colorScheme;
-  final String message;
-  if (plan.replace) {
-    message = 'Se eliminarán tus ${_games(plan.deleted)} actuales y se reemplazarán por '
-        '${_games(plan.incoming)} del archivo. Esta acción no se puede deshacer.';
-  } else {
-    // merge sin preservar, con coincidencias: se reinician las propiedades ausentes.
-    final added = plan.added > 0 ? ' Se añadirán ${_games(plan.added)} nuevos.' : '';
-    message = 'De los ${_games(plan.incoming)} del archivo, ${_games(plan.merged)} ya existen y '
-        'se sobrescribirán por completo: las propiedades que no vengan en el JSON se reiniciarán '
-        'a sus valores por defecto.$added Esta acción no se puede deshacer.';
-  }
+  final message = plan.replace
+      ? 'Se eliminarán tus ${_games(plan.deleted)} actuales y se reemplazarán por '
+          '${_games(plan.incoming)} del archivo. Esta acción no se puede deshacer.'
+      // merge sin preservar, con coincidencias: se reinician las propiedades ausentes.
+      : 'De los ${_games(plan.incoming)} del archivo, ${_games(plan.merged)} ya existen y '
+          'se sobrescribirán por completo: las propiedades que no vengan en el JSON se reiniciarán '
+          'a sus valores por defecto.'
+          '${plan.added > 0 ? ' Se añadirán ${_games(plan.added)} nuevos.' : ''}'
+          ' Esta acción no se puede deshacer.';
   return showDialog<bool>(
     context: context,
     builder: (dctx) => AlertDialog(
@@ -379,10 +404,7 @@ class _SteamAccountDialogState extends State<_SteamAccountDialog> {
                 child: TextButton.icon(
                   icon: const Icon(Icons.vpn_key, size: AppIconSize.medium),
                   label: const Text('Obtener una API key'),
-                  onPressed: () async {
-                    final uri = Uri.parse('https://steamcommunity.com/dev/apikey');
-                    if (await canLaunchUrl(uri)) await launchUrl(uri, mode: LaunchMode.externalApplication);
-                  },
+                  onPressed: () => _openUrl('https://steamcommunity.com/dev/apikey'),
                 ),
               ),
               if (_error case final message?)
@@ -483,6 +505,22 @@ class HomeView extends StatelessWidget {
   Widget build(BuildContext context) => const _AutoSyncScope(child: _HomeScaffold());
 }
 
+enum _MenuAction {
+  import('Importar biblioteca'),
+  export('Exportar biblioteca'),
+  clear('Vaciar biblioteca'),
+  updateGfn('Sincronizar datos de GeForce NOW'),
+  refetchSteam('Sincronizar datos de Steam'),
+  refetchHltb('Sincronizar datos de HLTB'),
+  refetchPcgw('Sincronizar datos de PCGamingWiki'),
+  steamLink('Vincular cuenta de Steam'),
+  steamSync('Importar biblioteca de Steam'),
+  esDePath('Vincular carpeta de ES-DE');
+
+  final String label;
+  const _MenuAction(this.label);
+}
+
 class _HomeScaffold extends StatelessWidget {
   const _HomeScaffold();
 
@@ -511,61 +549,18 @@ class _HomeScaffold extends StatelessWidget {
               _openGameDialog(context, games[_random.nextInt(games.length)]);
             },
           ),
-          PopupMenuButton<String>(
-            onSelected: (value) async {
-              if (value == 'import') {
-                _showJsonDialog(context);
-              } else if (value == 'export') {
-                _exportJson(context);
-              } else if (value == 'clear') {
-                _showClearConfirmDialog(context);
-              } else if (value == 'update_gfn') {
-                context.read<HomeCubit>().fetchGeforceNowDatabase();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Sincronizando datos de GeForce NOW en segundo plano...')),
-                );
-              } else if (value == 'refetch_steam') {
-                context.read<HomeCubit>().refetchSteamAll();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Sincronizando datos de Steam en segundo plano...')),
-                );
-              } else if (value == 'refetch_hltb') {
-                context.read<HomeCubit>().refetchHltbAll();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Sincronizando datos de HLTB en segundo plano...')),
-                );
-              } else if (value == 'steam_link') {
-                showDialog(context: context, builder: (_) => const _SteamAccountDialog());
-              } else if (value == 'steam_sync') {
-                final messenger = ScaffoldMessenger.of(context);
-                final result = await context.read<HomeCubit>().syncSteamLibrary();
-                messenger.showSnackBar(SnackBar(content: Text(_steamSyncMessage(result))));
-              } else if (value == 'esde_path') {
-                String? selectedDirectory = await FilePicker.getDirectoryPath();
-                if (selectedDirectory != null && context.mounted) {
-                  context.read<HomeCubit>().updateFlag(esDePath: selectedDirectory);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Carpeta de ES-DE vinculada con éxito.')),
-                  );
-                }
-              }
-            },
+          PopupMenuButton<_MenuAction>(
+            onSelected: (action) => _onMenuAction(context, action),
             itemBuilder: (context) => [
-              const PopupMenuItem(value: 'import', child: Text('Importar biblioteca')),
-              const PopupMenuItem(value: 'export', child: Text('Exportar biblioteca')),
-              const PopupMenuItem(value: 'clear', child: Text('Vaciar biblioteca')),
-              const PopupMenuDivider(),
-              const PopupMenuItem(value: 'update_gfn', child: Text('Sincronizar datos de GeForce NOW')),
-              const PopupMenuItem(value: 'refetch_steam', child: Text('Sincronizar datos de Steam')),
-              const PopupMenuItem(value: 'refetch_hltb', child: Text('Sincronizar datos de HLTB')),
-              const PopupMenuDivider(),
-              const PopupMenuItem(value: 'steam_link', child: Text('Vincular cuenta de Steam')),
-              PopupMenuItem(
-                value: 'steam_sync',
-                enabled: context.read<HomeCubit>().state.hasSteamAccount,
-                child: const Text('Importar biblioteca de Steam'),
-              ),
-              const PopupMenuItem(value: 'esde_path', child: Text('Vincular carpeta de ES-DE')),
+              for (final action in _MenuAction.values)
+                if (action != _MenuAction.refetchPcgw || PcgwService.enabled) ...[
+                  if (action case _MenuAction.updateGfn || _MenuAction.steamLink) const PopupMenuDivider(),
+                  PopupMenuItem(
+                    value: action,
+                    enabled: action != _MenuAction.steamSync || context.read<HomeCubit>().state.hasSteamAccount,
+                    child: Text(action.label),
+                  ),
+                ],
             ],
           ),
         ],
@@ -606,25 +601,54 @@ class _HomeScaffold extends StatelessWidget {
     );
   }
 
+  Future<void> _onMenuAction(BuildContext context, _MenuAction action) async {
+    final cubit = context.read<HomeCubit>();
+    final messenger = ScaffoldMessenger.of(context);
+    void notify(String message) => messenger.showSnackBar(SnackBar(content: Text(message)));
+
+    switch (action) {
+      case _MenuAction.import:
+        _showJsonDialog(context);
+      case _MenuAction.export:
+        _exportJson(context);
+      case _MenuAction.clear:
+        _showClearConfirmDialog(context);
+      case _MenuAction.updateGfn:
+        cubit.fetchGeforceNowDatabase();
+        notify('Sincronizando datos de GeForce NOW en segundo plano...');
+      case _MenuAction.refetchSteam:
+        cubit.refetchSteamAll();
+        notify('Sincronizando datos de Steam en segundo plano...');
+      case _MenuAction.refetchHltb:
+        cubit.refetchHltbAll();
+        notify('Sincronizando datos de HLTB en segundo plano...');
+      case _MenuAction.refetchPcgw:
+        cubit.refetchPcgwAll();
+        notify('Sincronizando datos de PCGamingWiki en segundo plano...');
+      case _MenuAction.steamLink:
+        showDialog(context: context, builder: (_) => const _SteamAccountDialog());
+      case _MenuAction.steamSync:
+        notify(_steamSyncMessage(await cubit.syncSteamLibrary()));
+      case _MenuAction.esDePath:
+        if (await FilePicker.getDirectoryPath() case final directory?) {
+          cubit.updateFlag(esDePath: directory);
+          notify('Carpeta de ES-DE vinculada con éxito.');
+        }
+    }
+  }
+
   Future<void> _exportJson(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
     try {
-      final jsonString = context.read<HomeCubit>().exportGamesJson();
-      final bytes = Uint8List.fromList(utf8.encode(jsonString));
-      Uri? outputFile = await FilePicker.saveFile(
+      final saved = await FilePicker.saveFile(
         dialogTitle: 'Exportar/Guardar JSON',
         fileName: 'mis_juegos.json',
-        type: FileType.custom,
-        allowedExtensions: ['json'],
-        bytes: bytes
+        bytes: Uint8List.fromList(utf8.encode(context.read<HomeCubit>().exportGamesJson())),
       );
 
-      if (outputFile != null && context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Archivo guardado con éxito.')));
-      }
+      if (saved != null) messenger.showSnackBar(const SnackBar(content: Text('Archivo guardado con éxito.')));
     } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al guardar el archivo: $e')));
-      }
+      messenger.showSnackBar(SnackBar(content: Text('Error al guardar el archivo: $e')));
     }
   }
 
@@ -663,11 +687,10 @@ class _HomeScaffold extends StatelessWidget {
                             allowedExtensions: ['json', 'txt'],
                           );
 
-                          if (result.isNotEmpty && result.single.path != null) {
-                            final file = File(result.single.path!);
-                            final content = await file.readAsString();
+                          if (result.singleOrNull?.path case final path?) {
+                            final content = await File(path).readAsString();
                             setState(() {
-                              selectedFileName = result.single.path;
+                              selectedFileName = path;
                               jsonCtrl.text = content;
                             });
                           }
@@ -687,9 +710,7 @@ class _HomeScaffold extends StatelessWidget {
                             child: Text(
                               selectedFileName ?? 'Tocar para elegir archivo...',
                               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                color: selectedFileName == null
-                                  ? Theme.of(context).textTheme.bodyMedium?.color
-                                  : scheme.primary,
+                                color: selectedFileName == null ? null : scheme.primary,
                                 fontWeight: selectedFileName == null ? FontWeight.normal : FontWeight.bold,
                               ),
                               maxLines: 1,
@@ -726,11 +747,11 @@ class _HomeScaffold extends StatelessWidget {
                       contentPadding: EdgeInsets.zero,
                       dense: true,
                       title: const Text('Conservar propiedades existentes'),
-                      subtitle: Text(replace
-                          ? 'No aplica al reemplazar: se descarta todo lo anterior.'
-                          : (preserveExisting
-                              ? 'Solo se actualizan las propiedades presentes en el JSON; el resto se mantiene.'
-                              : 'Las propiedades ausentes del JSON se reinician a sus valores por defecto.')),
+                      subtitle: Text(switch ((replace, preserveExisting)) {
+                        (true, _) => 'No aplica al reemplazar: se descarta todo lo anterior.',
+                        (false, true) => 'Solo se actualizan las propiedades presentes en el JSON; el resto se mantiene.',
+                        (false, false) => 'Las propiedades ausentes del JSON se reinician a sus valores por defecto.',
+                      }),
                       value: !replace && preserveExisting,
                       onChanged: replace ? null : (v) => setState(() => preserveExisting = v),
                     ),
@@ -763,50 +784,37 @@ class _HomeScaffold extends StatelessWidget {
               TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
               ValueListenableBuilder<TextEditingValue>(
                 valueListenable: jsonCtrl,
-                builder: (c, value, _) {
-                  final enabled = value.text.trim().isNotEmpty;
-                  return ElevatedButton(
-                    style: replace
-                        ? ElevatedButton.styleFrom(
-                            backgroundColor: scheme.error,
-                            foregroundColor: scheme.onError,
-                          )
-                        : null,
-                    onPressed: enabled
-                        ? () async {
-                            final messenger = ScaffoldMessenger.of(context);
-                            final cubit = context.read<HomeCubit>();
-                            final analysis = cubit.analyzeImport(
-                              jsonCtrl.text,
-                              replace: replace,
-                              preserveExisting: preserveExisting,
-                            );
-                            switch (analysis) {
-                              case InvalidImport():
-                                messenger.showSnackBar(const SnackBar(
-                                  content: Text('El texto no es un JSON de biblioteca válido.'),
-                                ));
-                              case EmptyImport():
-                                messenger.showSnackBar(const SnackBar(
-                                  content: Text('El JSON no contiene juegos con id_steam o nombre válidos.'),
-                                ));
-                              case ReadyImport(:final plan):
-                                // Pedimos confirmación extra si la operación destruye datos.
-                                if (plan.isDestructive) {
-                                  final confirmed = await _confirmImport(ctx, plan);
-                                  if (confirmed != true) return; // cancelar: regresa al diálogo intacto
-                                }
-                                await cubit.applyImport(plan);
-                                if (ctx.mounted) Navigator.pop(ctx);
-                                messenger.showSnackBar(
-                                  SnackBar(content: Text(_importSummary(plan))),
-                                );
-                            }
+                builder: (c, value, _) => ElevatedButton(
+                  style: replace
+                      ? ElevatedButton.styleFrom(
+                          backgroundColor: scheme.error,
+                          foregroundColor: scheme.onError,
+                        )
+                      : null,
+                  onPressed: value.text.trim().isEmpty
+                      ? null
+                      : () async {
+                          final messenger = ScaffoldMessenger.of(context);
+                          final cubit = context.read<HomeCubit>();
+                          switch (cubit.analyzeImport(jsonCtrl.text, replace: replace, preserveExisting: preserveExisting)) {
+                            case InvalidImport():
+                              messenger.showSnackBar(const SnackBar(
+                                content: Text('El texto no es un JSON de biblioteca válido.'),
+                              ));
+                            case EmptyImport():
+                              messenger.showSnackBar(const SnackBar(
+                                content: Text('El JSON no contiene juegos con id_steam o nombre válidos.'),
+                              ));
+                            case ReadyImport(:final plan):
+                              // Pedimos confirmación extra si la operación destruye datos.
+                              if (plan.isDestructive && await _confirmImport(ctx, plan) != true) return; // cancelar: regresa al diálogo intacto
+                              await cubit.applyImport(plan);
+                              if (ctx.mounted) Navigator.pop(ctx);
+                              messenger.showSnackBar(SnackBar(content: Text(_importSummary(plan))));
                           }
-                        : null,
-                    child: Text(replace ? 'Reemplazar' : 'Importar'),
-                  );
-                },
+                        },
+                  child: Text(replace ? 'Reemplazar' : 'Importar'),
+                ),
               ),
             ],
           );
@@ -820,7 +828,7 @@ class _HomeScaffold extends StatelessWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('¿Eliminar todo?'),
-        content: const Text('Se borrará el JSON guardado localmente en la app.'),
+        content: const Text('Se borrarán todos los juegos guardados localmente en la app.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
           ElevatedButton(
@@ -829,7 +837,7 @@ class _HomeScaffold extends StatelessWidget {
               foregroundColor: Theme.of(context).colorScheme.onError,
             ),
             onPressed: () {
-              context.read<HomeCubit>().clearJson();
+              context.read<HomeCubit>().clearLibrary();
               Navigator.pop(ctx);
             },
             child: const Text('Limpiar'),
@@ -852,7 +860,7 @@ class _SummaryText extends StatelessWidget {
     return Padding(
       padding: AppInsets.verticalSmall,
       child: Text(
-        "RESULTADOS: $count | PESO: ${HomeCubit.formatBytes(bytes, isBinary)}",
+        "RESULTADOS: $count | PESO: ${SizeUnit.format(bytes, binary: isBinary)}",
         style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
       ),
     );
@@ -864,21 +872,17 @@ class _SyncIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isFetching = context.select((HomeCubit c) => c.state.isFetchingSteam);
-    final isFetchingGfn = context.select((HomeCubit c) => c.state.isFetchingGfnDb);
-    final isFetchingHltb = context.select((HomeCubit c) => c.state.isFetchingHltb);
-    final isSyncingLibrary = context.select((HomeCubit c) => c.state.isSyncingSteamLibrary);
-    final pendingCount = context.select((HomeCubit c) => c.state.steamQueueSize);
-    final pendingHltbCount = context.select((HomeCubit c) => c.state.hltbQueueSize);
+    final tooltip = context.select((HomeCubit c) => [
+      'Sincronizando:',
+      if (c.state.isFetchingGfnDb) '• GeForce NOW: descargando catálogo',
+      if (c.state.isSyncingSteamLibrary) '• Steam: leyendo la biblioteca de la cuenta',
+      if (c.state.isFetchingSteam) '• Steam: ${c.state.steamQueueSize} pendientes',
+      if (c.state.isFetchingHltb) '• HLTB: ${c.state.hltbQueueSize} pendientes',
+      if (c.state.isFetchingPcgw) '• PCGamingWiki: ${c.state.pcgwQueueSize} pendientes',
+    ].join('\n'));
 
     return IconButton(
-      tooltip: [
-        'Sincronizando:',
-        if (isFetchingGfn) '• GeForce NOW: descargando catálogo',
-        if (isSyncingLibrary) '• Steam: leyendo la biblioteca de la cuenta',
-        if (isFetching) '• Steam: $pendingCount pendientes',
-        if (isFetchingHltb) '• HLTB: $pendingHltbCount pendientes',
-      ].join('\n'),
+      tooltip: tooltip,
       onPressed: () {},
       padding: EdgeInsets.zero,
       constraints: const BoxConstraints.tightFor(width: 30, height: 30),
@@ -903,11 +907,8 @@ class _CompactControls extends StatelessWidget {
     final hasGames = context.select((HomeCubit c) => c.state.gameCount > 0);
     final sortBy = context.select((HomeCubit c) => c.state.sortBy);
     final sortAsc = context.select((HomeCubit c) => c.state.sortAsc);
-    final isSyncing = context.select((HomeCubit c) =>
-        c.state.isFetchingSteam ||
-        c.state.isFetchingGfnDb ||
-        c.state.isFetchingHltb ||
-        c.state.isSyncingSteamLibrary);
+    final isSyncing = context.select((HomeCubit c) => c.state.isSyncing);
+    final primary = Theme.of(context).colorScheme.primary;
 
     return Padding(
       padding: AppInsets.control,
@@ -949,13 +950,13 @@ class _CompactControls extends StatelessWidget {
                       child: Text('Orden'),
                     ),
                     isDense: true,
-                    labelStyle: TextStyle(color: Theme.of(context).colorScheme.primary),
-                    floatingLabelStyle: TextStyle(color: Theme.of(context).colorScheme.primary),
+                    labelStyle: TextStyle(color: primary),
+                    floatingLabelStyle: TextStyle(color: primary),
                     contentPadding: EdgeInsets.zero,
                     border: const OutlineInputBorder(gapPadding: 0, borderRadius: AppRadius.small),
                   ),
                   child: DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
+                    child: DropdownButton<SortBy>(
                       value: sortBy,
                       isDense: true,
                       isExpanded: true,
@@ -963,18 +964,14 @@ class _CompactControls extends StatelessWidget {
                       borderRadius: AppRadius.small,
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         fontWeight: FontWeight.w600,
-                        color: Theme.of(context).colorScheme.primary,
+                        color: primary,
                       ),
                       icon: Padding(
                         padding: const EdgeInsets.only(left: AppSpacing.small),
-                        child: Icon(Icons.sort, size: AppIconSize.medium, color: Theme.of(context).colorScheme.primary),
+                        child: Icon(Icons.sort, size: AppIconSize.medium, color: primary),
                       ),
-                      items: const [
-                        DropdownMenuItem(value: 'name', child: Text('Nombre')),
-                        DropdownMenuItem(value: 'peso', child: Text('Peso')),
-                        DropdownMenuItem(value: 'hltbMain', child: Text('T. Historia')),
-                        DropdownMenuItem(value: 'hltbExtras', child: Text('T. Extras')),
-                        DropdownMenuItem(value: 'hltbComplete', child: Text('T. Platinado')),
+                      items: [
+                        for (final sort in SortBy.values) DropdownMenuItem(value: sort, child: Text(sort.label)),
                       ],
                       onChanged: (val) => context.read<HomeCubit>().updateFlag(sort: val),
                     ),
@@ -989,7 +986,7 @@ class _CompactControls extends StatelessWidget {
                   minimumSize: const Size(36, 36),
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   shape: AppRadius.smallShape,
-                  foregroundColor: Theme.of(context).colorScheme.primary,
+                  foregroundColor: primary,
                 ).copyWith(
                   side: WidgetStateProperty.resolveWith((states) {
                     final colors = Theme.of(context).colorScheme;
@@ -1032,12 +1029,12 @@ class _GamesList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<HomeCubit, HomeState>(
-      buildWhen: (prev, curr) {
-        return !identical(prev.filteredGames, curr.filteredGames) ||
-               prev.binaryFormat != curr.binaryFormat ||
-               prev.esDePath != curr.esDePath;
-      },
+      buildWhen: (prev, curr) =>
+          !identical(prev.filteredGames, curr.filteredGames) ||
+          prev.binaryFormat != curr.binaryFormat ||
+          prev.esDePath != curr.esDePath,
       builder: (context, state) {
+        final mutedColor = Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.6);
         return ListView.separated(
           padding: const EdgeInsets.fromLTRB(AppSpacing.medium, 0, AppSpacing.medium, AppSpacing.small),
           itemCount: state.filteredGames.length,
@@ -1045,85 +1042,50 @@ class _GamesList extends StatelessWidget {
           itemBuilder: (context, index) {
             final game = state.filteredGames[index];
 
-            final Game(:name, :idSteam, :isSoftware, :language, :isFree, :spType, :friendPlay, :matchmaking, :hasAchievements, :hasSteamCloud, :isGeforceNow, :vrSupport, :sizeInBytes, :status) = game;
-            final gameName = name ?? 'ID: $idSteam';
+            final Game(:name, :idSteam, :isSoftware, :language, :isFree, :spType, :friendPlay, :matchmaking, :hasAchievements, :hasSteamCloud, :isGeforceNow, :vr, :hasVrMods, :hasTranslations, :motion, :sizeInBytes, :status) = game;
             final coverPath = _getEsDeMediaPath(state.esDePath, 'covers', name);
 
-            final isCoop = switch ((matchmaking, friendPlay)) {
-              (InteractionType.coop || InteractionType.both, _) => true,
-              (_, InteractionType.coop || InteractionType.both) => true,
-              _ => false,
-            };
+            bool offers(InteractionType wanted) => [matchmaking, friendPlay].any((i) => i == wanted || i == InteractionType.both);
 
-            final isPvp = switch ((matchmaking, friendPlay)) {
-              (InteractionType.pvp || InteractionType.both, _) => true,
-              (_, InteractionType.pvp || InteractionType.both) => true,
-              _ => false,
-            };
-
-            final textTags = <String>[
-              _statusName(status),
-              if (isSoftware == true) 'Aplicación',
-              _langName(language),
-              if (isFree == true) 'Gratis',
-            ];
-
-            final emojiTags = <String>[
+            final emojiTags = [
               if (spType case SpType.native) '👤' else if (spType case SpType.simulated) '👥',
-              if (friendPlay case InteractionType.coop || InteractionType.pvp || InteractionType.both) '🛋',
-              if (matchmaking case InteractionType.coop || InteractionType.pvp || InteractionType.both) '🌍',
-              if (isCoop) '🤝',
-              if (isPvp) '⚔',
+              if (_activeInteractions.contains(friendPlay)) '🛋',
+              if (_activeInteractions.contains(matchmaking)) '🌍',
+              if (offers(InteractionType.coop)) '🤝',
+              if (offers(InteractionType.pvp)) '⚔',
               if (hasAchievements == true) '🏆',
               if (hasSteamCloud == true) '☁',
               if (isGeforceNow == true) '🖥',
-              if (vrSupport case VrSupport.yes || VrSupport.only || VrSupport.mod) '🥽',
+              if (vr != VrSupport.no || hasVrMods) '🥽',
+              if (motion?.works ?? false) '🕹',
+            ];
+            final textTags = [
+              status.label,
+              if (isSoftware == true) 'Aplicación',
+              language.label,
+              if (hasTranslations) 'Parche',
+              if (isFree == true) 'Gratis',
             ];
 
-            // Construimos los Spans por colores
-            final mutedColor = Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.6);
-            final spans = <InlineSpan>[];
-
-            // 1. Emojis primero
-            if (emojiTags.isNotEmpty) {
-              spans.add(TextSpan(
-                text: emojiTags.join(' '),
-                style: const TextStyle(letterSpacing: 2.0),
-              ));
-
-              if (textTags.isNotEmpty) {
-                spans.add(TextSpan(
-                  text: '  •  ',
-                  style: TextStyle(color: mutedColor, letterSpacing: 0),
-                ));
-              }
-            }
-
-            // 2. Textos (Estatus + otros) intercalados con viñetas atenuadas
-            for (int i = 0; i < textTags.length; i++) {
-              spans.add(TextSpan(text: textTags[i]));
-
-              if (i < textTags.length - 1) {
-                spans.add(TextSpan(
-                  text: '  •  ',
-                  style: TextStyle(color: mutedColor),
-                ));
-              }
-            }
+            // Emojis primero y luego los textos, todo separado por viñetas atenuadas.
+            final separator = TextSpan(text: '  •  ', style: TextStyle(color: mutedColor, letterSpacing: 0));
+            final spans = [
+              if (emojiTags.isNotEmpty) TextSpan(text: emojiTags.join(' '), style: const TextStyle(letterSpacing: 2.0)),
+              for (final tag in textTags) TextSpan(text: tag),
+            ];
 
             return ListTile(
               shape: AppRadius.smallShape,
-              tileColor: _statusColor(status, Theme.of(context).brightness == Brightness.dark),
+              tileColor: status.color(Theme.of(context).brightness == Brightness.dark),
               onLongPress: () => _openGameDialog(context, game),
               contentPadding: AppInsets.horizontalMedium,
               leading: PopupMenuButton<GameStatus>(
                 tooltip: 'Cambiar estatus',
                 initialValue: status,
-                onSelected: (newStatus) => context.read<HomeCubit>().updateGameStatus(game, newStatus),
-                itemBuilder: (ctx) => GameStatus.values.map((statusValue) => PopupMenuItem(
-                  value: statusValue,
-                  child: Text(_statusName(statusValue)),
-                )).toList(),
+                onSelected: (newStatus) => context.read<HomeCubit>().patchGame(game, {'status': newStatus.name}),
+                itemBuilder: (ctx) => [
+                  for (final s in GameStatus.values) PopupMenuItem(value: s, child: Text(s.label)),
+                ],
                 child: SizedBox(
                   width: 60, height: 60,
                   child: coverPath != null
@@ -1138,17 +1100,19 @@ class _GamesList extends StatelessWidget {
                 ),
               ),
               title: Text(
-                gameName,
+                name ?? 'ID: $idSteam',
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
               ),
               subtitle: Text.rich(
-                TextSpan(children: spans),
+                TextSpan(children: [
+                  for (final (i, span) in spans.indexed) ...[if (i > 0) separator, span],
+                ]),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.bodySmall,
               ),
               trailing: Text(
-                HomeCubit.formatBytes(sizeInBytes, state.binaryFormat),
+                SizeUnit.format(sizeInBytes, binary: state.binaryFormat),
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold),
               ),
             );
@@ -1184,6 +1148,39 @@ class _DialogDivider extends StatelessWidget {
   }
 }
 
+/// Opción del diálogo con icono y texto en negrita: enlaces, lanzadores y acciones.
+class _DialogAction extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String? note;
+  final VoidCallback onPressed;
+  const _DialogAction({required this.icon, required this.label, this.note, required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return SimpleDialogOption(
+      padding: AppInsets.allMedium,
+      onPressed: onPressed,
+      child: Row(
+        spacing: AppSpacing.medium,
+        children: [
+          Icon(icon, size: AppIconSize.medium),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold)),
+                if (note case final text?)
+                  Text(text, style: Theme.of(context).textTheme.bodySmall, maxLines: 2, overflow: TextOverflow.ellipsis),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _GameDialog extends StatelessWidget {
   final String gameId;
   final Game initialGame;
@@ -1195,7 +1192,7 @@ class _GameDialog extends StatelessWidget {
     final dialogWidth = MediaQuery.sizeOf(context).shortestSide - 48.0;
     final esDePath = context.read<HomeCubit>().state.esDePath;
     final titlePath = _getEsDeMediaPath(esDePath, 'marquees', initialGame.name);
-    final Game(:name, :idSteam, :patchUrl) = initialGame;
+    final Game(:name, :idSteam) = initialGame;
 
     return SimpleDialog(
       clipBehavior: Clip.antiAlias,
@@ -1237,40 +1234,109 @@ class _GameDialog extends StatelessWidget {
         // 6. Notas rápidas
         _DialogSection(child: _UserNoteField(gameId: gameId, initialNote: initialGame.userNote)),
 
-        // 7. Enlaces
-        if (idSteam != null || patchUrl != null) ...[
-          const _DialogDivider(),
-          if (idSteam != null)
-            SimpleDialogOption(
-              padding: AppInsets.allMedium,
-              onPressed: () async {
-                final uri = Uri.parse('https://store.steampowered.com/app/$idSteam/');
-                if (await canLaunchUrl(uri)) await launchUrl(uri, mode: LaunchMode.externalApplication);
-              },
-              child: Row(spacing: AppSpacing.medium, children: [
-                const Icon(Icons.link, size: AppIconSize.medium),
-                Text("Ver en Steam", style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold)),
-              ]),
-            ),
-          if (patchUrl != null)
-            SimpleDialogOption(
-              padding: AppInsets.allMedium,
-              onPressed: () async {
-                final uri = Uri.parse(patchUrl);
-                if (await canLaunchUrl(uri)) await launchUrl(uri, mode: LaunchMode.externalApplication);
-              },
-              child: Row(spacing: AppSpacing.medium, children: [
-                const Icon(Icons.download, size: AppIconSize.medium),
-                Text("Descargar parche", style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold)),
-              ]),
-            ),
-        ],
-
-        // 8. Botones de re-fetch
+        // 7. Enlaces y lanzadores
         if (idSteam != null) ...[
           const _DialogDivider(),
-          _DialogSection(child: _GameDialogButtons(gameId: gameId)),
+          _GameLaunchOptions(appId: idSteam),
+          _DialogAction(
+            icon: Icons.link,
+            label: 'Ver en Steam',
+            onPressed: () => _openUrl('https://store.steampowered.com/app/$idSteam/'),
+          ),
         ],
+        _GameDialogLinks(gameId: gameId, fallback: initialGame),
+
+        // 8. Botones de re-fetch
+        const _DialogDivider(),
+        _DialogSection(child: _GameDialogButtons(gameId: gameId)),
+      ],
+    );
+  }
+}
+
+// ── Lanzadores externos ──
+class _GameLaunchOptions extends StatefulWidget {
+  final int appId;
+  const _GameLaunchOptions({required this.appId});
+
+  @override
+  State<_GameLaunchOptions> createState() => _GameLaunchOptionsState();
+}
+
+class _GameLaunchOptionsState extends State<_GameLaunchOptions> {
+  late final Future<Map<GameLauncher, String>> _installed = detectInstalledLaunchers();
+
+  Future<void> _launch(GameLauncher launcher, String package) async {
+    try {
+      await launcher.launch(package, widget.appId);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo abrir ${launcher.label}')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder(
+      future: _installed,
+      builder: (context, snapshot) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final MapEntry(key: launcher, value: package) in (snapshot.data ?? const {}).entries)
+            _DialogAction(
+              icon: Icons.play_arrow,
+              label: 'Jugar en ${launcher.label}',
+              onPressed: () => _launch(launcher, package),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Enlaces de PCGamingWiki ──
+/// Traducciones, mods de VR, arreglos de audio y parches, cada grupo con su cabecera.
+/// Todo llega de la wiki o del JSON importado; aquí solo se abre el enlace.
+class _GameDialogLinks extends StatelessWidget {
+  final String gameId;
+  final Game fallback;
+  const _GameDialogLinks({required this.gameId, required this.fallback});
+
+  @override
+  Widget build(BuildContext context) {
+    final (pcgwPage, translations, vrMods, audioFixes, patches) = context.select((HomeCubit c) {
+      final g = c.gameById(gameId) ?? fallback;
+      return (g.pcgwPage, g.translations, g.vrMods, g.audioFixes, g.patches);
+    });
+    final groups = [
+      (Icons.translate, 'Traducciones al español', translations),
+      (Icons.view_in_ar, 'VR con mod o aplicación', vrMods),
+      (Icons.surround_sound, 'Sonido posicional (DSOAL / OpenAL)', audioFixes),
+      (Icons.build, 'Parches y mejoras', patches),
+    ];
+    if (pcgwPage == null && groups.every((g) => g.$3.isEmpty)) return const SizedBox.shrink();
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (pcgwPage case final page?)
+          _DialogAction(icon: Icons.menu_book, label: 'Ver en PCGamingWiki', onPressed: () => _openUrl(PcgwService.pageUrl(page))),
+        for (final (icon, title, links) in groups)
+          if (links.isNotEmpty) ...[
+            const _DialogDivider(),
+            Padding(
+              padding: AppInsets.horizontalMedium,
+              child: Row(spacing: AppSpacing.medium, children: [
+                Icon(icon, size: AppIconSize.medium),
+                Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+              ]),
+            ),
+            for (final link in links)
+              _DialogAction(icon: Icons.open_in_new, label: link.name, note: link.note, onPressed: () => _openUrl(link.url)),
+          ],
       ],
     );
   }
@@ -1286,35 +1352,36 @@ class _GameDialogStatus extends StatelessWidget {
     final status = context.select<HomeCubit, GameStatus>(
       (c) => c.gameById(gameId)?.status ?? GameStatus.planned,
     );
+    final primary = Theme.of(context).colorScheme.primary;
     return Column(
       mainAxisSize: MainAxisSize.min,
-      children: GameStatus.values.map((statusValue) {
-        final isCurrent = status == statusValue;
-        return SimpleDialogOption(
-          padding: AppInsets.allMedium,
-          onPressed: () {
-            final g = context.read<HomeCubit>().gameById(gameId);
-            if (g != null) context.read<HomeCubit>().updateGameStatus(g, statusValue);
-          },
-          child: Row(
-            spacing: AppSpacing.medium,
-            children: [
-              const SizedBox(width: AppSpacing.medium),
-              Text(
-                _statusName(statusValue),
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
-                  color: isCurrent ? Theme.of(context).colorScheme.primary : null,
+      children: [
+        for (final option in GameStatus.values)
+          SimpleDialogOption(
+            padding: AppInsets.allMedium,
+            onPressed: () {
+              final cubit = context.read<HomeCubit>();
+              if (cubit.gameById(gameId) case final g?) cubit.patchGame(g, {'status': option.name});
+            },
+            child: Row(
+              spacing: AppSpacing.medium,
+              children: [
+                const SizedBox(width: AppSpacing.medium),
+                Text(
+                  option.label,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    fontWeight: option == status ? FontWeight.bold : FontWeight.normal,
+                    color: option == status ? primary : null,
+                  ),
                 ),
-              ),
-              if (isCurrent) ...[
-                const Spacer(),
-                Icon(Icons.check, size: AppIconSize.medium, color: Theme.of(context).colorScheme.primary),
+                if (option == status) ...[
+                  const Spacer(),
+                  Icon(Icons.check, size: AppIconSize.medium, color: primary),
+                ],
               ],
-            ],
+            ),
           ),
-        );
-      }).toList(),
+      ],
     );
   }
 }
@@ -1327,26 +1394,26 @@ class _GameDialogChips extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final d = context.select<HomeCubit, ({GameLanguage language, bool? isSoftware, bool? isFree, bool? hasAchievements, bool? hasSteamCloud, bool? isGeforceNow, bool? isOwnedOnSteam})>(
-      (c) {
-        final g = c.gameById(gameId) ?? fallback;
-        return (language: g.language, isSoftware: g.isSoftware, isFree: g.isFree,
-                hasAchievements: g.hasAchievements, hasSteamCloud: g.hasSteamCloud,
-                isGeforceNow: g.isGeforceNow, isOwnedOnSteam: g.isOwnedOnSteam);
-      },
-    );
+    // Un record con solo lo que se pinta: guardar la nota del juego no reconstruye esto.
+    final (language, hasTranslations, isSoftware, isFree, hasAchievements, hasSteamCloud, isGeforceNow, motion, isOwnedOnSteam) =
+        context.select((HomeCubit c) {
+      final g = c.gameById(gameId) ?? fallback;
+      return (g.language, g.hasTranslations, g.isSoftware, g.isFree, g.hasAchievements, g.hasSteamCloud, g.isGeforceNow, g.motion, g.isOwnedOnSteam);
+    });
     return Wrap(
       spacing: AppSpacing.small,
       runSpacing: AppSpacing.small,
       children: [
-        _InfoChip(icon: Icons.language, label: _langName(d.language)),
-        if (d.isSoftware == true) const _InfoChip(icon: Icons.apps, label: 'Aplicación'),
-        if (d.isFree == true) const _InfoChip(icon: Icons.money_off, label: 'Gratuito'),
-        if (d.hasAchievements == true) const _InfoChip(icon: Icons.emoji_events, label: 'Logros'),
-        if (d.hasSteamCloud == true) const _InfoChip(icon: Icons.cloud, label: 'Steam Cloud'),
-        if (d.isGeforceNow == true) const _InfoChip(icon: Icons.cast, label: 'GeForce NOW'),
+        _InfoChip(icon: Icons.language, label: language.label),
+        if (hasTranslations) const _InfoChip(icon: Icons.translate, label: 'Parche'),
+        if (isSoftware == true) const _InfoChip(icon: Icons.apps, label: 'Aplicación'),
+        if (isFree == true) const _InfoChip(icon: Icons.money_off, label: 'Gratuito'),
+        if (hasAchievements == true) const _InfoChip(icon: Icons.emoji_events, label: 'Logros'),
+        if (hasSteamCloud == true) const _InfoChip(icon: Icons.cloud, label: 'Steam Cloud'),
+        if (isGeforceNow == true) const _InfoChip(icon: Icons.cast, label: 'GeForce NOW'),
+        if (motion case final support? when support.works) _InfoChip(icon: Icons.screen_rotation, label: 'Movimiento ${support.label}'),
         // Solo se avisa de la ausencia: que un juego esté en la cuenta es lo normal.
-        if (d.isOwnedOnSteam == false) const _InfoChip(icon: Icons.no_accounts, label: 'Fuera de la cuenta'),
+        if (isOwnedOnSteam == false) const _InfoChip(icon: Icons.no_accounts, label: 'Fuera de la cuenta'),
       ],
     );
   }
@@ -1360,16 +1427,15 @@ class _GameDialogProperties extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final p = context.select<HomeCubit, ({SpType? spType, InteractionType? matchmaking, InteractionType? friendPlay, VrSupport? vrSupport})>(
-      (c) {
-        final g = c.gameById(gameId) ?? fallback;
-        return (spType: g.spType, matchmaking: g.matchmaking, friendPlay: g.friendPlay, vrSupport: g.vrSupport);
-      },
-    );
+    final (spType, matchmaking, friendPlay, vr, hasVrMods) = context.select((HomeCubit c) {
+      final g = c.gameById(gameId) ?? fallback;
+      return (g.spType, g.matchmaking, g.friendPlay, g.vr, g.hasVrMods);
+    });
 
-    void update(Game Function(Game) patch) {
-      final g = context.read<HomeCubit>().gameById(gameId) ?? fallback;
-      context.read<HomeCubit>().updateGameDetails(patch(g), originalGame: g);
+    void update(String key, Enum? value) {
+      if (value == null) return;
+      final cubit = context.read<HomeCubit>();
+      cubit.patchGame(cubit.gameById(gameId) ?? fallback, {key: value.name});
     }
 
     return Column(
@@ -1378,65 +1444,45 @@ class _GameDialogProperties extends StatelessWidget {
       children: [
         _GameSizeRow(gameId: gameId, fallback: fallback),
 
-        if (p.spType == SpType.none)
+        if (spType == SpType.none)
           const _ReadOnlyRow(icon: Icons.person, label: "Solitario:", value: "Sin modo solitario")
         else
           _DropdownRow<SpType>(
             icon: Icons.person,
             label: "Solitario:",
-            value: p.spType,
+            value: spType,
             items: [
-              if (p.spType == null) const DropdownMenuItem(value: SpType.none, child: Text('No aplica')),
+              if (spType == null) const DropdownMenuItem(value: SpType.none, child: Text('No aplica')),
               const DropdownMenuItem(value: SpType.native, child: Text('Nativo')),
               const DropdownMenuItem(value: SpType.simulated, child: Text('Con Bots / Alternado')),
             ],
-            onChanged: (val) { if (val != null) update((g) => g.copyWith(spType: val)); },
+            onChanged: (val) => update('sp_type', val),
           ),
 
-        if (p.matchmaking == InteractionType.none)
+        if (matchmaking == InteractionType.none)
           const _ReadOnlyRow(icon: Icons.public, label: "Matchmaking:", value: "Sin matchmaking")
         else
           _DropdownRow<InteractionType>(
             icon: Icons.public,
             label: "Matchmaking:",
-            value: p.matchmaking,
-            items: _activeInteractions.map((t) => DropdownMenuItem(value: t, child: Text(_interactionName(t)))).toList(),
-            onChanged: (val) { if (val != null) update((g) => g.copyWith(matchmaking: val)); },
+            value: matchmaking,
+            items: [for (final t in _activeInteractions) DropdownMenuItem(value: t, child: Text(t.label))],
+            onChanged: (val) => update('matchmaking', val),
           ),
 
-        if (p.friendPlay == InteractionType.none)
+        if (friendPlay == InteractionType.none)
           const _ReadOnlyRow(icon: Icons.chair, label: "Salas/Local:", value: "Sin multijugador local")
         else
           _DropdownRow<InteractionType>(
             icon: Icons.chair,
             label: "Salas/Local:",
-            value: p.friendPlay,
-            items: _activeInteractions.map((t) => DropdownMenuItem(value: t, child: Text(_interactionName(t)))).toList(),
-            onChanged: (val) { if (val != null) update((g) => g.copyWith(friendPlay: val)); },
+            value: friendPlay,
+            items: [for (final t in _activeInteractions) DropdownMenuItem(value: t, child: Text(t.label))],
+            onChanged: (val) => update('friend_play', val),
           ),
 
-        if (p.vrSupport == VrSupport.yes)
-          const _ReadOnlyRow(icon: Icons.view_in_ar, label: "VR:", value: "VR opcional")
-        else if (p.vrSupport == VrSupport.only)
-          const _ReadOnlyRow(icon: Icons.view_in_ar, label: "VR:", value: "Solo VR")
-        else
-          _DropdownRow<VrSupport>(
-            icon: Icons.view_in_ar,
-            label: "VR:",
-            value: p.vrSupport,
-            items: [
-              if (p.vrSupport == null) ...const [
-                DropdownMenuItem(value: VrSupport.no, child: Text('Sin soporte VR')),
-                DropdownMenuItem(value: VrSupport.yes, child: Text('VR opcional')),
-                DropdownMenuItem(value: VrSupport.only, child: Text('Solo VR')),
-                DropdownMenuItem(value: VrSupport.mod, child: Text('Mod de VR')),
-              ] else ...const [
-                DropdownMenuItem(value: VrSupport.no, child: Text('Sin soporte VR')),
-                DropdownMenuItem(value: VrSupport.mod, child: Text('Mod de VR')),
-              ],
-            ],
-            onChanged: (val) { if (val != null) update((g) => g.copyWith(vrSupport: val)); },
-          ),
+        // Lo de serie lo dice Steam y los mods se listan abajo: no hay nada que editar.
+        _ReadOnlyRow(icon: Icons.view_in_ar, label: "VR:", value: hasVrMods ? '${vr.label} + mods' : vr.label),
       ],
     );
   }
@@ -1463,16 +1509,14 @@ class _GameSizeRowState extends State<_GameSizeRow> {
   late double _bytes = _initial.sizeInBytes;
   // La unidad es elección del usuario, no se deduce de la cifra: 0,5 GB o un campo
   // vacío no deben devolver el selector a MB.
-  late bool _large = _isLargeUnit(_initial.unit);
+  late bool _large = _initial.unit.isLarge;
 
-  static bool _isLargeUnit(String unit) => unit == 'gb' || unit == 'gib';
-
-  bool get _isBinary => _cubit.state.binaryFormat;
+  SizeUnit _unit(bool large) => SizeUnit.of(large: large, binary: _cubit.state.binaryFormat);
 
   @override
   void initState() {
     super.initState();
-    _ctrl.text = _formatIn(_bytes, _unitOf(large: _large, isBinary: _isBinary).divisor);
+    _ctrl.text = _formatIn(_bytes, _unit(_large));
     _focus.addListener(() {
       if (!_focus.hasFocus) _commit(_large);
     });
@@ -1490,17 +1534,17 @@ class _GameSizeRowState extends State<_GameSizeRow> {
   /// Guarda lo escrito y devuelve el peso resultante. Sin cifra válida se conserva el
   /// peso guardado y solo cambia la unidad.
   double _save(bool large) {
-    final unit = _unitOf(large: large, isBinary: _isBinary);
-    final value = double.tryParse(_ctrl.text.replaceAll(',', '.')) ?? _bytes / unit.divisor;
+    final unit = _unit(large);
+    final value = double.tryParse(_ctrl.text.replaceAll(',', '.')) ?? _bytes / unit.bytes;
 
     final game = _cubit.gameById(widget.gameId) ?? widget.fallback;
     // Se compara en bytes con la tolerancia del redondeo a 2 decimales, no por nombre:
     // perder el foco sin editar no debe reescribir el archivo.
-    final edited = (value * unit.divisor - game.sizeInBytes).abs() > unit.divisor * 0.005;
-    if (edited || large != _isLargeUnit(game.unit)) {
-      _cubit.updateGameSize(game, value, unit.name);
+    final edited = (value * unit.bytes - game.sizeInBytes).abs() > unit.bytes * 0.005;
+    if (edited || large != game.unit.isLarge) {
+      _cubit.patchGame(game, {'size': value, 'unit': unit.name});
     }
-    return edited ? value * unit.divisor : game.sizeInBytes;
+    return edited ? value * unit.bytes : game.sizeInBytes;
   }
 
   void _commit(bool large) {
@@ -1509,7 +1553,7 @@ class _GameSizeRowState extends State<_GameSizeRow> {
       _bytes = bytes;
       _large = large;
     });
-    _ctrl.text = _formatIn(bytes, _unitOf(large: large, isBinary: _isBinary).divisor);
+    _ctrl.text = _formatIn(bytes, _unit(large));
   }
 
   @override
@@ -1519,7 +1563,7 @@ class _GameSizeRowState extends State<_GameSizeRow> {
 
     return BlocListener<HomeCubit, HomeState>(
       listenWhen: (p, c) => p.binaryFormat != c.binaryFormat,
-      listener: (_, s) => _ctrl.text = _formatIn(_bytes, _unitOf(large: _large, isBinary: s.binaryFormat).divisor),
+      listener: (_, s) => _ctrl.text = _formatIn(_bytes, SizeUnit.of(large: _large, binary: s.binaryFormat)),
       child: Row(
         spacing: AppSpacing.small,
         children: [
@@ -1547,7 +1591,7 @@ class _GameSizeRowState extends State<_GameSizeRow> {
               style: valueStyle,
               items: [
                 for (final large in const [false, true])
-                  DropdownMenuItem(value: large, child: Text(_unitOf(large: large, isBinary: isBinary).name)),
+                  DropdownMenuItem(value: large, child: Text(SizeUnit.of(large: large, binary: isBinary).label)),
               ],
               onChanged: (large) {
                 if (large != null) _commit(large);
@@ -1596,81 +1640,55 @@ class _GameDialogHltb extends StatelessWidget {
       return isLabel ? ColoredBox(color: headerColor, child: child) : child;
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _DialogSection(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            spacing: AppSpacing.medium,
+    // El tiempo "clásico" se omite: las cuatro cifras restantes ya cubren el rango útil.
+    TableRow row(String label, HltbTime time) => TableRow(children: [
+      td(label, isLabel: true),
+      td(_formatDuration(time.average)),
+      td(_formatDuration(time.median)),
+      td(_formatDuration(time.rushed)),
+      td(_formatDuration(time.leisure), trailing: true),
+    ]);
+
+    return _DialogSection(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        spacing: AppSpacing.medium,
+        children: [
+          const Row(spacing: AppSpacing.medium, children: [
+            Icon(Icons.timer, size: AppIconSize.medium),
+            Text('Tiempos Estimados (HowLongToBeat)', style: TextStyle(fontWeight: FontWeight.w600)),
+          ]),
+          Table(
+            border: TableBorder(
+              top: borderSide, right: borderSide, bottom: borderSide, left: borderSide,
+              horizontalInside: borderSide, borderRadius: AppRadius.small,
+            ),
+            columnWidths: const {
+              0: FlexColumnWidth(1.4),
+              1: FlexColumnWidth(1.1),
+              2: FlexColumnWidth(1.1),
+              3: FlexColumnWidth(1.1),
+              4: FlexColumnWidth(1.1),
+            },
             children: [
-              const Row(spacing: AppSpacing.medium, children: [
-                Icon(Icons.timer, size: AppIconSize.medium),
-                Text('Tiempos Estimados (HowLongToBeat)', style: TextStyle(fontWeight: FontWeight.w600)),
-              ]),
-              Table(
-                border: TableBorder(
-                  top: borderSide, right: borderSide, bottom: borderSide, left: borderSide,
-                  horizontalInside: borderSide, borderRadius: AppRadius.small,
-                ),
-                columnWidths: const {
-                  0: FlexColumnWidth(1.4),
-                  1: FlexColumnWidth(1.1),
-                  2: FlexColumnWidth(1.1),
-                  3: FlexColumnWidth(1.1),
-                  4: FlexColumnWidth(1.1),
-                  // 5: FlexColumnWidth(1.1),
-                },
+              TableRow(
+                decoration: BoxDecoration(color: headerColor),
                 children: [
-                  TableRow(
-                    decoration: BoxDecoration(color: headerColor),
-                    children: [
-                      const SizedBox.shrink(),
-                      // td('Clásico', isHeader: true),
-                      td('Promedio', isHeader: true),
-                      td('Mediana', isHeader: true),
-                      td('Rápido', isHeader: true),
-                      td('Relajado', isHeader: true, trailing: true),
-                    ],
-                  ),
-                  if (!mainStory.isEmpty) TableRow(children: [
-                    td('Historia', isLabel: true),
-                    // td(_formatDuration(mainStory.classic)),
-                    td(_formatDuration(mainStory.average)),
-                    td(_formatDuration(mainStory.median)),
-                    td(_formatDuration(mainStory.rushed)),
-                    td(_formatDuration(mainStory.leisure), trailing: true),
-                  ]),
-                  if (!extras.isEmpty) TableRow(children: [
-                    td('+ Extras', isLabel: true),
-                    // td(_formatDuration(extras.classic)),
-                    td(_formatDuration(extras.average)),
-                    td(_formatDuration(extras.median)),
-                    td(_formatDuration(extras.rushed)),
-                    td(_formatDuration(extras.leisure), trailing: true),
-                  ]),
-                  if (!completionist.isEmpty) TableRow(children: [
-                    td('Platinado', isLabel: true),
-                    // td(_formatDuration(completionist.classic)),
-                    td(_formatDuration(completionist.average)),
-                    td(_formatDuration(completionist.median)),
-                    td(_formatDuration(completionist.rushed)),
-                    td(_formatDuration(completionist.leisure), trailing: true),
-                  ]),
-                  if (!allPlayStyles.isEmpty) TableRow(children: [
-                    td('Todos los estilos', isLabel: true),
-                    // td(_formatDuration(allPlayStyles.classic)),
-                    td(_formatDuration(allPlayStyles.average)),
-                    td(_formatDuration(allPlayStyles.median)),
-                    td(_formatDuration(allPlayStyles.rushed)),
-                    td(_formatDuration(allPlayStyles.leisure), trailing: true),
-                  ]),
+                  const SizedBox.shrink(),
+                  td('Promedio', isHeader: true),
+                  td('Mediana', isHeader: true),
+                  td('Rápido', isHeader: true),
+                  td('Relajado', isHeader: true, trailing: true),
                 ],
               ),
+              if (!mainStory.isEmpty) row('Historia', mainStory),
+              if (!extras.isEmpty) row('+ Extras', extras),
+              if (!completionist.isEmpty) row('Platinado', completionist),
+              if (!allPlayStyles.isEmpty) row('Todos los estilos', allPlayStyles),
             ],
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -1682,56 +1700,35 @@ class _GameDialogButtons extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    void refetch(void Function(Game) action, String msg) {
-      final g = context.read<HomeCubit>().gameById(gameId);
-      if (g == null) return;
-      action(g);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-    }
+    final cubit = context.read<HomeCubit>();
+    final hasAppId = context.select<HomeCubit, bool>((c) => c.gameById(gameId)?.idSteam != null);
+    final sources = [
+      if (hasAppId) ('Steam', cubit.refetchSteamForGame),
+      if (hasAppId) ('GFN', cubit.refetchGfnForGame),
+      ('HLTB', cubit.refetchHltbForGame),
+      if (PcgwService.enabled) ('PCGW', cubit.refetchPcgwForGame),
+    ];
 
     return Wrap(
       spacing: AppSpacing.small,
       runSpacing: AppSpacing.small,
       children: [
-        OutlinedButton.icon(
-          icon: const Icon(Icons.refresh, size: AppIconSize.small),
-          label: const Text('Steam'),
-          style: OutlinedButton.styleFrom(
-            shape: AppRadius.smallShape, visualDensity: VisualDensity.compact,
-            textStyle: const TextStyle(fontWeight: FontWeight.bold),
-            padding: AppInsets.control,
+        for (final (label, refetch) in sources)
+          OutlinedButton.icon(
+            icon: const Icon(Icons.refresh, size: AppIconSize.small),
+            label: Text(label),
+            style: OutlinedButton.styleFrom(
+              shape: AppRadius.smallShape, visualDensity: VisualDensity.compact,
+              textStyle: const TextStyle(fontWeight: FontWeight.bold),
+              padding: AppInsets.control,
+            ),
+            onPressed: () {
+              if (cubit.gameById(gameId) case final g?) {
+                refetch(g);
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Re-consultando $label en segundo plano...')));
+              }
+            },
           ),
-          onPressed: () => refetch(
-            (g) => context.read<HomeCubit>().refetchSteamForGame(g),
-            'Re-consultando Steam en segundo plano...',
-          ),
-        ),
-        OutlinedButton.icon(
-          icon: const Icon(Icons.refresh, size: AppIconSize.small),
-          label: const Text('GFN'),
-          style: OutlinedButton.styleFrom(
-            shape: AppRadius.smallShape, visualDensity: VisualDensity.compact,
-            textStyle: const TextStyle(fontWeight: FontWeight.bold),
-            padding: AppInsets.control,
-          ),
-          onPressed: () => refetch(
-            (g) => context.read<HomeCubit>().refetchGfnForGame(g),
-            'Re-consultando GeForce NOW en segundo plano...',
-          ),
-        ),
-        OutlinedButton.icon(
-          icon: const Icon(Icons.refresh, size: AppIconSize.small),
-          label: const Text('HLTB'),
-          style: OutlinedButton.styleFrom(
-            shape: AppRadius.smallShape, visualDensity: VisualDensity.compact,
-            textStyle: const TextStyle(fontWeight: FontWeight.bold),
-            padding: AppInsets.control,
-          ),
-          onPressed: () => refetch(
-            (g) => context.read<HomeCubit>().refetchHltbForGame(g),
-            'Re-consultando HLTB en segundo plano...',
-          ),
-        ),
       ],
     );
   }
@@ -1844,18 +1841,10 @@ class _UserNoteField extends StatefulWidget {
 }
 
 class _UserNoteFieldState extends State<_UserNoteField> {
-  late TextEditingController _ctrl;
-  late FocusNode _focusNode;
+  late final TextEditingController _ctrl = TextEditingController(text: widget.initialNote);
+  late final FocusNode _focusNode = FocusNode()..addListener(_onFocusChange);
   Timer? _debounce;
   bool _pendingSave = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = TextEditingController(text: widget.initialNote);
-    _focusNode = FocusNode();
-    _focusNode.addListener(_onFocusChange);
-  }
 
   void _onFocusChange() {
     if (!_focusNode.hasFocus && _pendingSave) {
@@ -1870,20 +1859,15 @@ class _UserNoteFieldState extends State<_UserNoteField> {
       _debounce?.cancel();
       _save();
     }
-    _focusNode.removeListener(_onFocusChange);
     _focusNode.dispose();
     _ctrl.dispose();
     super.dispose();
   }
 
   void _save() {
-    final g = context.read<HomeCubit>().gameById(widget.gameId);
-    if (g == null) { _pendingSave = false; return; }
-    context.read<HomeCubit>().updateGameDetails(
-      g.copyWith(userNote: _ctrl.text),
-      originalGame: g,
-    );
     _pendingSave = false;
+    final cubit = context.read<HomeCubit>();
+    if (cubit.gameById(widget.gameId) case final g?) cubit.patchGame(g, {'user_note': _ctrl.text});
   }
 
   @override
@@ -1902,7 +1886,7 @@ class _UserNoteFieldState extends State<_UserNoteField> {
         ),
         onChanged: (val) {
           _pendingSave = true;
-          if (_debounce?.isActive ?? false) _debounce!.cancel();
+          _debounce?.cancel();
           _debounce = Timer(const Duration(milliseconds: 1500), _save);
         },
       ),
@@ -1914,28 +1898,27 @@ class _UserNoteFieldState extends State<_UserNoteField> {
 // PIEZAS REUTILIZABLES DE LA HOJA DE FILTROS
 // ==========================================
 
+/// Chip de selección única, sin marca de verificación y compacto.
+ChoiceChip _choiceChip(String label, {required bool selected, required VoidCallback onSelected}) => ChoiceChip(
+  label: Text(label),
+  selected: selected,
+  showCheckmark: false,
+  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+  onSelected: (v) { if (v) onSelected(); },
+);
+
 Wrap _triFilterWrap({
   required TriFilter value,
   required String yesLabel,
   required String noLabel,
   required ValueChanged<TriFilter> onSelected,
-}) {
-  Widget chip(String label, TriFilter option) => ChoiceChip(
-        label: Text(label),
-        selected: value == option,
-        showCheckmark: false,
-        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        onSelected: (v) { if (v) onSelected(option); },
-      );
-  return Wrap(
-    spacing: AppSpacing.small, runSpacing: AppSpacing.small,
-    children: [
-      chip('Todos', TriFilter.all),
-      chip(yesLabel, TriFilter.yes),
-      chip(noLabel, TriFilter.no),
-    ],
-  );
-}
+}) => Wrap(
+  spacing: AppSpacing.small, runSpacing: AppSpacing.small,
+  children: [
+    for (final (label, option) in [('Todos', TriFilter.all), (yesLabel, TriFilter.yes), (noLabel, TriFilter.no)])
+      _choiceChip(label, selected: value == option, onSelected: () => onSelected(option)),
+  ],
+);
 
 /// Grupo de 3 chips (Todos / Sí / No) que observa un único TriFilter del estado.
 class _TriFilterChips extends StatelessWidget {
@@ -1996,13 +1979,7 @@ class _InteractionFilterGroup extends StatelessWidget {
             spacing: AppSpacing.small, runSpacing: AppSpacing.small,
             children: [
               for (final exp in ExperienceFilter.values)
-                ChoiceChip(
-                  label: Text(_expName(exp)),
-                  selected: experience == exp,
-                  showCheckmark: false,
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  onSelected: (v) { if (v) onExperienceChanged(exp); },
-                ),
+                _choiceChip(exp.label, selected: experience == exp, onSelected: () => onExperienceChanged(exp)),
             ],
           ),
       ],
@@ -2021,12 +1998,10 @@ class _SliderDistributionChips extends StatelessWidget {
       spacing: AppSpacing.small, runSpacing: AppSpacing.small,
       children: [
         for (final dist in SliderDistribution.values)
-          ChoiceChip(
-            label: Text(_distName(dist)),
+          _choiceChip(
+            dist.label,
             selected: current == dist,
-            showCheckmark: false,
-            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            onSelected: (v) { if (v) context.read<HomeCubit>().updateFlag(sliderDistribution: dist); },
+            onSelected: () => context.read<HomeCubit>().updateFlag(sliderDistribution: dist),
           ),
       ],
     );
@@ -2274,12 +2249,13 @@ class _HoldRepeatButtonState extends State<_HoldRepeatButton> {
   Timer? _repeat;
   int _ticks = 0;
 
-  static int _stepForTicks(int t) {
-    if (t < 6) return 1; // ~0.5 s de 1 en 1
-    if (t < 12) return 2; // luego de 2 en 2
-    if (t < 20) return 5; // luego de 5 en 5
-    return 10; // y finalmente de 10 en 10
-  }
+  // ~0.5 s de 1 en 1, luego de 2 en 2, de 5 en 5 y finalmente de 10 en 10.
+  static int _stepForTicks(int t) => switch (t) {
+    < 6 => 1,
+    < 12 => 2,
+    < 20 => 5,
+    _ => 10,
+  };
 
   void _start() {
     _stop();
@@ -2339,11 +2315,11 @@ class _MaxValueFormatter extends TextInputFormatter {
 }
 
 class _DaysStepperState extends State<_DaysStepper> {
-  late final HomeCubit _cubit; // guardado para poder volcar en dispose sin usar context
-  late final TextEditingController _ctrl;
-  late final FocusNode _focus;
+  late final HomeCubit _cubit = context.read<HomeCubit>(); // guardado para poder volcar en dispose sin usar context
+  late int _days = widget.selector(_cubit.state).clamp(_min, _max);
+  late final TextEditingController _ctrl = TextEditingController(text: _fieldText(_days));
+  late final FocusNode _focus = FocusNode()..addListener(_onFocusChange);
   Timer? _commitDebounce;
-  late int _days;
 
   int get _min => widget.min;
   int get _max => widget.max;
@@ -2352,19 +2328,9 @@ class _DaysStepperState extends State<_DaysStepper> {
   String _fieldText(int value) => widget.specialLabels.containsKey(value) ? '' : '$value';
 
   @override
-  void initState() {
-    super.initState();
-    _cubit = context.read<HomeCubit>();
-    _days = widget.selector(_cubit.state).clamp(_min, _max);
-    _ctrl = TextEditingController(text: _fieldText(_days));
-    _focus = FocusNode()..addListener(_onFocusChange);
-  }
-
-  @override
   void dispose() {
     _commitDebounce?.cancel();
     _commitNow(); // vuelca cualquier cambio pendiente antes de irse
-    _focus.removeListener(_onFocusChange);
     _focus.dispose();
     _ctrl.dispose();
     super.dispose();
@@ -2384,7 +2350,8 @@ class _DaysStepperState extends State<_DaysStepper> {
       final text = _fieldText(value);
       if (_ctrl.text != text) _ctrl.text = text;
     }
-    _scheduleCommit();
+    _commitDebounce?.cancel();
+    _commitDebounce = Timer(const Duration(milliseconds: 400), _commitNow);
   }
 
   void _bump(int delta) => _setDays(_cycle(_days, delta));
@@ -2397,11 +2364,6 @@ class _DaysStepperState extends State<_DaysStepper> {
       _setDays((parsed ?? _days).clamp(_min, _max));
       _commitNow();
     }
-  }
-
-  void _scheduleCommit() {
-    _commitDebounce?.cancel();
-    _commitDebounce = Timer(const Duration(milliseconds: 400), _commitNow);
   }
 
   void _commitNow() {
@@ -2424,12 +2386,11 @@ class _DaysStepperState extends State<_DaysStepper> {
       textDirection: TextDirection.ltr,
       maxLines: 1,
     )..layout();
-    final fieldWidth = painter.width + 10;
 
     final baseBorder = OutlineInputBorder(
       gapPadding: 0,
       borderRadius: AppRadius.small,
-      borderSide: BorderSide(color: cs.outlineVariant), 
+      borderSide: BorderSide(color: cs.outlineVariant),
     );
 
     return TapRegion(
@@ -2463,7 +2424,7 @@ class _DaysStepperState extends State<_DaysStepper> {
                 onStep: (magnitude) => _bump(-magnitude),
               ),
               SizedBox(
-                width: fieldWidth,
+                width: painter.width + 10,
                 child: TextField(
                   controller: _ctrl,
                   focusNode: _focus,
@@ -2482,9 +2443,8 @@ class _DaysStepperState extends State<_DaysStepper> {
                   ),
                   style: numberStyle,
                   onChanged: (text) {
-                    final v = int.tryParse(text);
                     // No reescribimos el campo mientras escribe (syncField: false).
-                    if (v != null) _setDays(v.clamp(_min, _max), syncField: false);
+                    if (int.tryParse(text) case final v?) _setDays(v.clamp(_min, _max), syncField: false);
                   },
                   onSubmitted: (_) => _focus.unfocus(),
                 ),
@@ -2515,14 +2475,7 @@ class _FilterBottomSheet extends StatefulWidget {
 }
 
 class _FilterBottomSheetState extends State<_FilterBottomSheet> {
-  late TextEditingController _searchCtrl;
-
-  @override
-  void initState() {
-    super.initState();
-    final currentQuery = context.read<HomeCubit>().state.searchQuery;
-    _searchCtrl = TextEditingController(text: currentQuery);
-  }
+  late final TextEditingController _searchCtrl = TextEditingController(text: context.read<HomeCubit>().state.searchQuery);
 
   @override
   void dispose() {
@@ -2530,7 +2483,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
     super.dispose();
   }
 
-  Widget _buildGroup(String title, Widget child, [Widget? extraChild]) {
+  Widget _buildGroup(String title, Widget child) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -2538,13 +2491,25 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
       children: [
         Text(title, style: Theme.of(context).textTheme.titleMedium),
         child,
-        ?extraChild,
       ],
     );
   }
 
+  /// Un chip por valor del enum, cada uno observando solo su propia visibilidad.
+  Widget _enumGroup<T extends Enum>(String title, List<T> values, Set<T> Function(HomeState) visible, {List<Widget> extra = const []}) => _buildGroup(
+    title,
+    Wrap(
+      spacing: AppSpacing.small, runSpacing: AppSpacing.small,
+      children: [for (final value in values) _EnumFilterChip(value: value, visible: visible), ...extra],
+    ),
+  );
+
+  Widget _triGroup(String title, String yesLabel, String noLabel, TriFilter Function(HomeState) selector, ValueChanged<TriFilter> onSelected) =>
+      _buildGroup(title, _TriFilterChips(yesLabel: yesLabel, noLabel: noLabel, selector: selector, onSelected: onSelected));
+
   @override
   Widget build(BuildContext context) {
+    final cubit = context.read<HomeCubit>();
     // No se suscribe a estado volátil ni hace setState al teclear: se ejecuta una vez al
     // abrir y cada grupo hijo gestiona su propio rebuild.
     return Padding(
@@ -2556,35 +2521,14 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
           spacing: AppSpacing.large,
           children: [
             _ProfileManager(searchController: _searchCtrl),
-
-            _buildGroup(
-              'Búsqueda',
-              _SearchField(controller: _searchCtrl),
-            ),
-
-            _buildGroup(
-              'Idiomas',
-              Wrap(
-                spacing: AppSpacing.small, runSpacing: AppSpacing.small,
-                children: GameLanguage.values.map((lang) => _LanguageFilterChip(language: lang)).toList(),
-              ),
-            ),
-
-            _buildGroup(
-              'Solitario',
-              Wrap(
-                spacing: AppSpacing.small, runSpacing: AppSpacing.small,
-                children: SpType.values.map((sp) => _SpTypeFilterChip(spType: sp)).toList(),
-              ),
-            ),
-
-            _buildGroup(
-              'VR',
-              Wrap(
-                spacing: AppSpacing.small, runSpacing: AppSpacing.small,
-                children: VrSupport.values.map((vr) => _VrFilterChip(vrSupport: vr)).toList(),
-              ),
-            ),
+            _buildGroup('Búsqueda', _SearchField(controller: _searchCtrl)),
+            _enumGroup('Idiomas', GameLanguage.values, (s) => s.visibleLanguages, extra: [
+              _BooleanFilterChip(label: 'Parche', selector: (c) => c.state.includeTranslations, onToggled: (val) => cubit.updateFlag(translations: val)),
+            ]),
+            _enumGroup('Solitario', SpType.values, (s) => s.visibleSpTypes),
+            _enumGroup('VR', VrSupport.values, (s) => s.visibleVrTypes, extra: [
+              _BooleanFilterChip(label: 'Mods VR', selector: (c) => c.state.includeVrMods, onToggled: (val) => cubit.updateFlag(vrMods: val)),
+            ]),
 
             _InteractionFilterGroup(
               title: 'Salas / Local',
@@ -2592,8 +2536,8 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
               noLabel: 'Sin Salas/Local',
               selectFilter: (s) => s.friendPlayFilter,
               selectExperience: (s) => s.friendPlayExperience,
-              onFilterChanged: (t) => context.read<HomeCubit>().updateFlag(friendPlayFilter: t),
-              onExperienceChanged: (e) => context.read<HomeCubit>().updateFlag(friendPlayExperience: e),
+              onFilterChanged: (t) => cubit.updateFlag(friendPlayFilter: t),
+              onExperienceChanged: (e) => cubit.updateFlag(friendPlayExperience: e),
             ),
 
             _InteractionFilterGroup(
@@ -2602,62 +2546,20 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
               noLabel: 'Sin Matchmaking',
               selectFilter: (s) => s.matchmakingFilter,
               selectExperience: (s) => s.matchmakingExperience,
-              onFilterChanged: (t) => context.read<HomeCubit>().updateFlag(matchmakingFilter: t),
-              onExperienceChanged: (e) => context.read<HomeCubit>().updateFlag(matchmakingExperience: e),
+              onFilterChanged: (t) => cubit.updateFlag(matchmakingFilter: t),
+              onExperienceChanged: (e) => cubit.updateFlag(matchmakingExperience: e),
             ),
 
-            _buildGroup(
-              'Logros de Steam',
-              _TriFilterChips(
-                yesLabel: 'Con Logros',
-                noLabel: 'Sin Logros',
-                selector: (s) => s.achievementsFilter,
-                onSelected: (t) => context.read<HomeCubit>().updateFlag(achievementsFilter: t),
-              ),
-            ),
-
-            _buildGroup(
-              'Steam Cloud',
-              _TriFilterChips(
-                yesLabel: 'Soporta Cloud',
-                noLabel: 'Sin Cloud',
-                selector: (s) => s.steamCloudFilter,
-                onSelected: (t) => context.read<HomeCubit>().updateFlag(steamCloudFilter: t),
-              ),
-            ),
-
-            _buildGroup(
-              'Precio',
-              _TriFilterChips(
-                yesLabel: 'Gratuitos',
-                noLabel: 'De Pago',
-                selector: (s) => s.priceFilter,
-                onSelected: (t) => context.read<HomeCubit>().updateFlag(priceFilter: t),
-              ),
-            ),
-
-            _buildGroup(
-              'GeForce NOW',
-              _TriFilterChips(
-                yesLabel: 'En GFN',
-                noLabel: 'No en GFN',
-                selector: (s) => s.geforceNowFilter,
-                onSelected: (t) => context.read<HomeCubit>().updateFlag(geforceNowFilter: t),
-              ),
-            ),
+            _triGroup('Logros de Steam', 'Con Logros', 'Sin Logros', (s) => s.achievementsFilter, (t) => cubit.updateFlag(achievementsFilter: t)),
+            _triGroup('Steam Cloud', 'Soporta Cloud', 'Sin Cloud', (s) => s.steamCloudFilter, (t) => cubit.updateFlag(steamCloudFilter: t)),
+            _triGroup('Precio', 'Gratuitos', 'De Pago', (s) => s.priceFilter, (t) => cubit.updateFlag(priceFilter: t)),
+            _triGroup('GeForce NOW', 'En GFN', 'No en GFN', (s) => s.geforceNowFilter, (t) => cubit.updateFlag(geforceNowFilter: t)),
+            _triGroup('Movimiento', 'Giroscopio o mandos VR', 'Sin movimiento', (s) => s.motionFilter, (t) => cubit.updateFlag(motionFilter: t)),
 
             // Sin cuenta vinculada, o con una que no aportó ningún juego, el filtro
             // dejaría ambos lados vacíos.
             if (context.select<HomeCubit, bool>((c) => c.hasSteamOwnershipData))
-              _buildGroup(
-                'Cuenta de Steam',
-                _TriFilterChips(
-                  yesLabel: 'En la cuenta',
-                  noLabel: 'No en la cuenta',
-                  selector: (s) => s.steamOwnershipFilter,
-                  onSelected: (t) => context.read<HomeCubit>().updateFlag(steamOwnershipFilter: t),
-                ),
-              ),
+              _triGroup('Cuenta de Steam', 'En la cuenta', 'No en la cuenta', (s) => s.steamOwnershipFilter, (t) => cubit.updateFlag(steamOwnershipFilter: t)),
 
             _buildGroup(
               'Otras características',
@@ -2667,32 +2569,22 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
                   _BooleanFilterChip(
                     label: 'Incluir aplicaciones',
                     selector: (c) => c.state.includeSoftware,
-                    onToggled: (val) => context.read<HomeCubit>().updateFlag(software: val),
+                    onToggled: (val) => cubit.updateFlag(software: val),
                   ),
                   _BooleanFilterChip(
                     label: 'Formato binario (MiB/GiB)',
                     selector: (c) => c.state.binaryFormat,
-                    onToggled: (val) => context.read<HomeCubit>().updateFlag(binary: val),
+                    onToggled: (val) => cubit.updateFlag(binary: val),
                   ),
                 ],
               ),
             ),
 
             if (context.select<HomeCubit, bool>((c) => c.state.hasSteamAccount))
-              _buildGroup(
-                'Sincronizar biblioteca de Steam',
-                const _SteamLibraryCheckControls(),
-              ),
+              _buildGroup('Sincronizar biblioteca de Steam', const _SteamLibraryCheckControls()),
 
-            _buildGroup(
-              'Sincronizar con HowLongToBeat',
-              const _HltbRefreshControls(),
-            ),
-
-            _buildGroup(
-              'Distribución del Slider',
-              const _SliderDistributionChips(),
-            ),
+            _buildGroup('Sincronizar con HowLongToBeat', const _HltbRefreshControls()),
+            _buildGroup('Distribución del Slider', const _SliderDistributionChips()),
 
             BlocBuilder<HomeCubit, HomeState>(
               buildWhen: (p, c) => p.groupByStatus != c.groupByStatus || !identical(p.statusFilters, c.statusFilters),
@@ -2716,7 +2608,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
                           state.groupByStatus ? Icons.layers : Icons.layers_outlined,
                           size: AppIconSize.medium,
                         ),
-                        onSelected: (v) => ctx.read<HomeCubit>().updateFlag(groupByStatus: v),
+                        onSelected: (v) => cubit.updateFlag(groupByStatus: v),
                       ),
                     ],
                   ),
@@ -2732,36 +2624,21 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
   }
 }
 
-class _SpTypeFilterChip extends StatelessWidget {
-  final SpType spType;
-  const _SpTypeFilterChip({required this.spType});
+/// Chip de visibilidad de un valor de idioma, solitario o VR.
+class _EnumFilterChip<T extends Enum> extends StatelessWidget {
+  final T value;
+  final Set<T> Function(HomeState) visible;
+  const _EnumFilterChip({required this.value, required this.visible});
 
   @override
   Widget build(BuildContext context) {
-    final isSelected = context.select((HomeCubit c) => c.state.visibleSpTypes.contains(spType));
+    final isSelected = context.select((HomeCubit c) => visible(c.state).contains(value));
     return FilterChip(
       showCheckmark: false,
-      label: Text(_spTypeName(spType)),
+      label: Text(_enumLabel(value)),
       selected: isSelected,
       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      onSelected: (val) => context.read<HomeCubit>().toggleSpTypeFilter(spType, val),
-    );
-  }
-}
-
-class _VrFilterChip extends StatelessWidget {
-  final VrSupport vrSupport;
-  const _VrFilterChip({required this.vrSupport});
-
-  @override
-  Widget build(BuildContext context) {
-    final isSelected = context.select((HomeCubit c) => c.state.visibleVrTypes.contains(vrSupport));
-    return FilterChip(
-      showCheckmark: false,
-      label: Text(_vrName(vrSupport)),
-      selected: isSelected,
-      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      onSelected: (val) => context.read<HomeCubit>().toggleVrFilter(vrSupport, val),
+      onSelected: (val) => context.read<HomeCubit>().toggleVisible(value, val),
     );
   }
 }
@@ -2786,23 +2663,6 @@ class _BooleanFilterChip extends StatelessWidget {
   }
 }
 
-class _LanguageFilterChip extends StatelessWidget {
-  final GameLanguage language;
-  const _LanguageFilterChip({required this.language});
-
-  @override
-  Widget build(BuildContext context) {
-    final isSelected = context.select((HomeCubit c) => c.state.visibleLanguages.contains(language));
-    return FilterChip(
-      showCheckmark: false,
-      label: Text(_langName(language)),
-      selected: isSelected,
-      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      onSelected: (val) => context.read<HomeCubit>().toggleLanguageFilter(language, val),
-    );
-  }
-}
-
 class _StatusChipGrid extends StatefulWidget {
   const _StatusChipGrid({required this.config});
   final List<StatusEntry> config;
@@ -2812,14 +2672,8 @@ class _StatusChipGrid extends StatefulWidget {
 }
 
 class _StatusChipGridState extends State<_StatusChipGrid> {
-  late List<StatusEntry> _preview;
+  late List<StatusEntry> _preview = List.of(widget.config);
   GameStatus? _dragging;
-
-  @override
-  void initState() {
-    super.initState();
-    _preview = List.of(widget.config);
-  }
 
   @override
   void didUpdateWidget(_StatusChipGrid old) {
@@ -2833,10 +2687,7 @@ class _StatusChipGridState extends State<_StatusChipGrid> {
     final fi = _preview.indexWhere((e) => e.status == from);
     final ti = _preview.indexWhere((e) => e.status == to);
     if (fi < 0 || ti < 0 || fi == ti) return;
-    setState(() {
-      final item = _preview.removeAt(fi);
-      _preview.insert(ti, item);
-    });
+    setState(() => _preview.insert(ti, _preview.removeAt(fi)));
   }
 
   void _commit() {
@@ -2885,13 +2736,11 @@ class _DraggableStatusChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final isThisDragging = currentlyDragging == status;
     final chip = _StatusFilterChip(status: status);
     final feedback = Material(
       type: MaterialType.transparency,
       elevation: 4,
-      shadowColor: cs.shadow,
+      shadowColor: Theme.of(context).colorScheme.shadow,
       child: _StatusFilterChip(status: status),
     );
 
@@ -2903,7 +2752,7 @@ class _DraggableStatusChip extends StatelessWidget {
       },
       onAcceptWithDetails: (_) {},
       builder: (ctx, candidates, _) {
-        final isTarget = candidates.isNotEmpty && !isThisDragging;
+        final isTarget = candidates.isNotEmpty && currentlyDragging != status;
         return AnimatedScale(
           scale: isTarget ? 1.06 : 1.0,
           duration: const Duration(milliseconds: 100),
@@ -2930,17 +2779,16 @@ class _StatusFilterChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final cubit = context.read<HomeCubit>();
     final isSelected = context.select<HomeCubit, bool>(
-      (c) => c.state.isStatusVisible(status),
+      (c) => c.state.visibleStatuses.contains(status),
     );
-    final color = _statusColor(status, Theme.of(context).brightness == Brightness.dark);
+    final color = status.color(Theme.of(context).brightness == Brightness.dark);
 
     return FilterChip(
       label: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(_statusName(status)),
+          Text(status.label),
           const SizedBox(width: AppSpacing.tiny),
           Icon(
             Icons.drag_indicator,
@@ -2952,10 +2800,9 @@ class _StatusFilterChip extends StatelessWidget {
       selected: isSelected,
       showCheckmark: false,
       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      onSelected: (val) => cubit.toggleStatusFilter(status, val),
+      onSelected: (val) => context.read<HomeCubit>().toggleStatusFilter(status, val),
       backgroundColor: color.withValues(alpha: 0.25),
       selectedColor: color.withValues(alpha: 0.55),
-      // side: BorderSide.none,
     );
   }
 }
@@ -2964,47 +2811,37 @@ class _StatusFilterChip extends StatelessWidget {
 // CONTROLES DE SLIDERS AISLADOS Y OPTIMIZADOS
 // ==========================================
 
+/// Redondea un peso a la unidad entera que le toca (MB por debajo de 1 GB, GB a partir).
+double _snapToUnit(double bytes, {required bool binary}) {
+  final unit = SizeUnit.forBytes(bytes, binary: binary).bytes;
+  return (bytes / unit).roundToDouble() * unit;
+}
+
+/// Paradas del slider discreto: una por MB hasta 1 GB y una por GB en adelante, entre
+/// los límites absolutos. Se recalculan solo cuando cambian los límites o el formato.
 class _DiscreteStepCache {
-  double _min = -1;
-  double _max = -1;
-  bool _binary = false;
-  List<double> _steps = [];
+  (double, double, bool)? _key;
+  List<double> _steps = const [];
 
   List<double> getSteps(HomeState state) {
-    if (_min == state.absoluteMinBytes &&
-        _max == state.absoluteMaxBytes &&
-        _binary == state.binaryFormat &&
-        _steps.isNotEmpty) {
-      return _steps;
+    final key = (state.absoluteMinBytes, state.absoluteMaxBytes, state.binaryFormat);
+    if (key == _key) return _steps;
+    _key = key;
+
+    final (min, max, binary) = key;
+    final mb = SizeUnit.of(large: false, binary: binary).bytes;
+    final gb = SizeUnit.of(large: true, binary: binary).bytes;
+    double step(double bytes) => bytes < gb ? mb : gb;
+
+    final steps = [min];
+    var current = _snapToUnit(min, binary: binary);
+    if (current <= min) current += step(current);
+    for (var safety = 0; current < max && safety < 50000; safety++) {
+      steps.add(current);
+      current += step(current);
     }
-
-    _min = state.absoluteMinBytes;
-    _max = state.absoluteMaxBytes;
-    _binary = state.binaryFormat;
-
-    final mb = _binary ? 1048576.0 : 1000000.0;
-    final gb = _binary ? 1073741824.0 : 1000000000.0;
-
-    _steps = [_min];
-
-    double current = _snapToUnit(_min, _binary, mb, gb);
-    if (current <= _min) current += (current < gb ? mb : gb);
-
-    int safety = 0;
-    while (current < _max && safety < 50000) {
-      _steps.add(current);
-      current += (current < gb ? mb : gb);
-      safety++;
-    }
-
-    if (_steps.last < _max) _steps.add(_max);
-
-    return _steps;
-  }
-
-  static double _snapToUnit(double bytes, bool isBinary, double mb, double gb) {
-    final divisor = bytes >= gb ? gb : mb;
-    return (bytes / divisor).roundToDouble() * divisor;
+    if (steps.last < max) steps.add(max);
+    return _steps = steps;
   }
 }
 
@@ -3024,8 +2861,8 @@ class _SliderControlsState extends State<_SliderControls> {
 
   Timer? _debounceTimer;
   bool _isDragging = false;
-  double? _localMinBytes;
-  double? _localMaxBytes;
+  late double _localMinBytes;
+  late double _localMaxBytes;
   // Unidad de cada extremo, deducida del valor: GB en cuanto llega a 1 GB.
   bool _minLarge = false;
   bool _maxLarge = false;
@@ -3058,11 +2895,12 @@ class _SliderControlsState extends State<_SliderControls> {
   }
 
   void _updateTextFields(double minB, double maxB, bool isBinary) {
-    final gb = isBinary ? 1073741824.0 : 1000000000.0;
-    _minLarge = minB >= gb;
-    _maxLarge = maxB >= gb;
-    final minStr = _formatIn(minB, _unitOf(large: _minLarge, isBinary: isBinary).divisor);
-    final maxStr = _formatIn(maxB, _unitOf(large: _maxLarge, isBinary: isBinary).divisor);
+    final minUnit = SizeUnit.forBytes(minB, binary: isBinary);
+    final maxUnit = SizeUnit.forBytes(maxB, binary: isBinary);
+    _minLarge = minUnit.isLarge;
+    _maxLarge = maxUnit.isLarge;
+    final minStr = _formatIn(minB, minUnit);
+    final maxStr = _formatIn(maxB, maxUnit);
     if (minCtrl.text != minStr) minCtrl.text = minStr;
     if (maxCtrl.text != maxStr) maxCtrl.text = maxStr;
   }
@@ -3072,24 +2910,19 @@ class _SliderControlsState extends State<_SliderControls> {
   void _submitManualEntry(TextEditingController ctrl, bool isMin, bool large) {
     _debounceTimer?.cancel();
 
-    final state = context.read<HomeCubit>().state;
-    final currentBytes = isMin ? (_localMinBytes ?? state.currentMinBytes) : (_localMaxBytes ?? state.currentMaxBytes);
-    final shownDivisor = _unitOf(large: isMin ? _minLarge : _maxLarge, isBinary: state.binaryFormat).divisor;
-    final unitDivisor = _unitOf(large: large, isBinary: state.binaryFormat).divisor;
-
-    final value = int.tryParse(ctrl.text) ?? (currentBytes / shownDivisor).round();
-    final cubit = context.read<HomeCubit>()
-      ..updateRange(
-        isMin ? value * unitDivisor : _localMinBytes ?? state.currentMinBytes,
-        isMin ? _localMaxBytes ?? state.currentMaxBytes : value * unitDivisor,
-      );
+    final cubit = context.read<HomeCubit>();
+    final binary = cubit.state.binaryFormat;
+    final currentBytes = isMin ? _localMinBytes : _localMaxBytes;
+    final shownUnit = SizeUnit.of(large: isMin ? _minLarge : _maxLarge, binary: binary);
+    final value = (int.tryParse(ctrl.text) ?? (currentBytes / shownUnit.bytes).round()) * SizeUnit.of(large: large, binary: binary).bytes;
+    cubit.updateRange(isMin ? value : _localMinBytes, isMin ? _localMaxBytes : value);
 
     // Se toma lo que quedó en el estado: si el valor salió de los límites y se recortó a
     // lo que ya había, no hay emit que corrija el campo.
     setState(() {
       _localMinBytes = cubit.state.currentMinBytes;
       _localMaxBytes = cubit.state.currentMaxBytes;
-      _updateTextFields(_localMinBytes!, _localMaxBytes!, cubit.state.binaryFormat);
+      _updateTextFields(_localMinBytes, _localMaxBytes, binary);
     });
   }
 
@@ -3098,39 +2931,33 @@ class _SliderControlsState extends State<_SliderControls> {
       _localMinBytes = calcMin;
       _localMaxBytes = calcMax;
     });
-
     _updateTextFields(calcMin, calcMax, isBinary);
 
-    if (_debounceTimer?.isActive ?? false) _debounceTimer!.cancel();
-
+    _debounceTimer?.cancel();
     _debounceTimer = Timer(const Duration(milliseconds: 600), () {
-      if (mounted) {
-        context.read<HomeCubit>().updateRange(_localMinBytes!, _localMaxBytes!);
-      }
+      if (mounted) context.read<HomeCubit>().updateRange(_localMinBytes, _localMaxBytes);
     });
   }
 
   void _onSliderChangeEnd() {
     setState(() => _isDragging = false);
-
     if (_debounceTimer?.isActive ?? false) {
       _debounceTimer!.cancel();
-      context.read<HomeCubit>().updateRange(_localMinBytes!, _localMaxBytes!);
+      context.read<HomeCubit>().updateRange(_localMinBytes, _localMaxBytes);
     }
   }
 
+  /// Posición [0, 1] del slider para un peso. En modo discreto es la parada más
+  /// cercana (búsqueda binaria); en los continuos, la fracción del rango con la curva.
   double _bytesToSlider(double bytes, HomeState state, List<double> steps) {
-    final dist = state.sliderDistribution;
-    if (dist == SliderDistribution.discrete) {
-      if (steps.length <= 1) return 0.0;
-      if (bytes <= steps.first) return 0.0;
+    if (state.sliderDistribution == SliderDistribution.discrete) {
+      if (steps.length <= 1 || bytes <= steps.first) return 0.0;
       if (bytes >= steps.last) return 1.0;
 
-      int low = 0;
-      int high = steps.length - 1;
-
+      var low = 0;
+      var high = steps.length - 1;
       while (low <= high) {
-        int mid = (low + high) >> 1;
+        final mid = (low + high) >> 1;
         if (steps[mid] == bytes) return mid / (steps.length - 1);
         if (steps[mid] < bytes) {
           low = mid + 1;
@@ -3138,64 +2965,53 @@ class _SliderControlsState extends State<_SliderControls> {
           high = mid - 1;
         }
       }
-
-      double diffLow = (bytes - steps[high]).abs();
-      double diffHigh = (steps[low] - bytes).abs();
-      return (diffLow < diffHigh ? high : low) / (steps.length - 1);
+      final nearest = (bytes - steps[high]).abs() < (steps[low] - bytes).abs() ? high : low;
+      return nearest / (steps.length - 1);
     }
 
-    final minB = state.absoluteMinBytes;
-    final maxB = state.absoluteMaxBytes;
+    final HomeState(absoluteMinBytes: minB, absoluteMaxBytes: maxB) = state;
     if (bytes <= minB) return 0.0;
     if (bytes >= maxB) return 1.0;
     final fraction = (bytes - minB) / (maxB - minB);
-    return switch (dist) {
+    return switch (state.sliderDistribution) {
       SliderDistribution.quadratic => sqrt(fraction),
       SliderDistribution.cubic => pow(fraction, 1 / 3).toDouble(),
-      _ => fraction,
+      SliderDistribution.discrete => fraction,
     };
   }
 
   double _sliderToBytes(double sliderVal, HomeState state, List<double> steps) {
-    final dist = state.sliderDistribution;
-    if (dist == SliderDistribution.discrete) {
+    if (state.sliderDistribution == SliderDistribution.discrete) {
       if (steps.isEmpty) return state.absoluteMinBytes;
-      if (steps.length == 1) return steps.first;
-
-      int index = (sliderVal * (steps.length - 1)).round();
-      return steps[index.clamp(0, steps.length - 1)];
+      return steps[(sliderVal * (steps.length - 1)).round().clamp(0, steps.length - 1)];
     }
 
-    final minB = state.absoluteMinBytes;
-    final maxB = state.absoluteMaxBytes;
+    final HomeState(absoluteMinBytes: minB, absoluteMaxBytes: maxB) = state;
     if (sliderVal <= 0.0) return minB;
     if (sliderVal >= 1.0) return maxB;
-
-    final fraction = switch (dist) {
+    final fraction = switch (state.sliderDistribution) {
       SliderDistribution.quadratic => pow(sliderVal, 2).toDouble(),
       SliderDistribution.cubic => pow(sliderVal, 3).toDouble(),
-      _ => sliderVal,
+      SliderDistribution.discrete => sliderVal,
     };
-
     return minB + fraction * (maxB - minB);
   }
 
   @override
   Widget build(BuildContext context) {
     return BlocListener<HomeCubit, HomeState>(
-      listenWhen: (prev, curr) {
-        return prev.currentMinBytes != curr.currentMinBytes ||
-               prev.currentMaxBytes != curr.currentMaxBytes ||
-               prev.binaryFormat != curr.binaryFormat ||
-               prev.absoluteMaxBytes != curr.absoluteMaxBytes;
-      },
+      listenWhen: (prev, curr) =>
+          prev.currentMinBytes != curr.currentMinBytes ||
+          prev.currentMaxBytes != curr.currentMaxBytes ||
+          prev.binaryFormat != curr.binaryFormat ||
+          prev.absoluteMaxBytes != curr.absoluteMaxBytes,
       listener: (context, state) {
         if (!_isInteracting) {
           setState(() {
             _localMinBytes = state.currentMinBytes;
             _localMaxBytes = state.currentMaxBytes;
           });
-          _updateTextFields(_localMinBytes!, _localMaxBytes!, state.binaryFormat);
+          _updateTextFields(_localMinBytes, _localMaxBytes, state.binaryFormat);
         }
       },
       child: BlocBuilder<HomeCubit, HomeState>(
@@ -3205,12 +3021,9 @@ class _SliderControlsState extends State<_SliderControls> {
             prev.binaryFormat != curr.binaryFormat ||
             prev.sliderDistribution != curr.sliderDistribution,
         builder: (context, state) {
-          final cMin = _localMinBytes ?? state.currentMinBytes;
-          final cMax = _localMaxBytes ?? state.currentMaxBytes;
           final steps = _stepCache.getSteps(state);
-
-          final tMin = _bytesToSlider(cMin, state, steps).clamp(0.0, 1.0);
-          final tMax = _bytesToSlider(cMax, state, steps).clamp(0.0, 1.0);
+          final tMin = _bytesToSlider(_localMinBytes, state, steps).clamp(0.0, 1.0);
+          final tMax = _bytesToSlider(_localMaxBytes, state, steps).clamp(0.0, 1.0);
 
           return Column(
             mainAxisSize: MainAxisSize.min,
@@ -3234,13 +3047,11 @@ class _SliderControlsState extends State<_SliderControls> {
                   values: RangeValues(tMin, tMax),
                   min: 0.0, max: 1.0,
                   onChangeStart: (_) => setState(() => _isDragging = true),
-                  onChanged: (values) {
-                    final mb = state.binaryFormat ? 1048576.0 : 1000000.0;
-                    final gb = state.binaryFormat ? 1073741824.0 : 1000000000.0;
-                    double calcMin = _DiscreteStepCache._snapToUnit(_sliderToBytes(values.start, state, steps), state.binaryFormat, mb, gb);
-                    double calcMax = _DiscreteStepCache._snapToUnit(_sliderToBytes(values.end, state, steps), state.binaryFormat, mb, gb);
-                    _onSliderChanged(calcMin, calcMax, state.binaryFormat);
-                  },
+                  onChanged: (values) => _onSliderChanged(
+                    _snapToUnit(_sliderToBytes(values.start, state, steps), binary: state.binaryFormat),
+                    _snapToUnit(_sliderToBytes(values.end, state, steps), binary: state.binaryFormat),
+                    state.binaryFormat,
+                  ),
                   onChangeEnd: (_) => _onSliderChangeEnd(),
                 ),
               ),
@@ -3252,8 +3063,7 @@ class _SliderControlsState extends State<_SliderControls> {
   }
 
   Widget _buildEditableLimit(TextEditingController ctrl, FocusNode focus, bool isMin, bool isBinary) {
-    final large = isMin ? _minLarge : _maxLarge;
-
+    final primary = Theme.of(context).colorScheme.primary;
     return TapRegion(
       // Guardar queda en manos del listener de foco, sea cual sea la forma de perderlo.
       onTapOutside: (_) {
@@ -3272,27 +3082,21 @@ class _SliderControlsState extends State<_SliderControls> {
               keyboardType: TextInputType.number,
               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               decoration: const InputDecoration(border: InputBorder.none, isCollapsed: true),
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: Theme.of(context).colorScheme.primary,
-              ),
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: primary),
               onSubmitted: (_) => focus.unfocus(),
             ),
           ),
           DropdownButtonHideUnderline(
             child: DropdownButton<bool>(
-              value: large,
+              value: isMin ? _minLarge : _maxLarge,
               isDense: true, iconSize: 20,
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: Theme.of(context).colorScheme.primary,
-              ),
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold, color: primary),
               items: [
-                for (final l in const [false, true])
-                  DropdownMenuItem(value: l, child: Text(_unitOf(large: l, isBinary: isBinary).name)),
+                for (final large in const [false, true])
+                  DropdownMenuItem(value: large, child: Text(SizeUnit.of(large: large, binary: isBinary).label)),
               ],
-              onChanged: (l) {
-                if (l != null) _submitManualEntry(ctrl, isMin, l);
+              onChanged: (large) {
+                if (large != null) _submitManualEntry(ctrl, isMin, large);
               },
             ),
           ),
